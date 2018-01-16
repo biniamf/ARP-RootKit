@@ -10,9 +10,10 @@ all: arprk
 arprk:
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) kernel.s
 	echo "\t.data" > kernel-asm.s
-	grep -vE "\.file|\.text|\.rodata|\.bss|\.data|\.version|\.section|\.align|\.p2align|\.balign|\.ident" kernel.s >> kernel-asm.s
-	python relocate-arrays.py > kernel-asm.relocated.s
-	gcc -o kernel-asm.o -c kernel-asm.relocated.s
+	grep -vE "\.file|\.text|\.rodata|\.bss|\.data|\.version|\.section|\.align|\.p2align|\.balign|\.ident|__fentry__|__stack_chk_fail" kernel.s >> kernel-asm.s
+	#python relocate-arrays.py > kernel-asm.relocated.s
+	#mv kernel-asm.relocated.s kernel-asm.s
+	gcc -o kernel-asm.o -c kernel-asm.s
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) modules
 
 clean:

