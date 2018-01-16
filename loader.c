@@ -124,6 +124,8 @@ int relocate(void *code, size_t code_len) {
 		return -1;
 	}
 
+	cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_ATT); // CS_OPT_SYNTAX_ATT represents AT&T syntax
+
 	count = cs_disasm(handle, code, code_len, (unsigned long)&kernel_start, 0, &insn);
 	pinfo("%d instructions disassembled.\n", count);
 	if (count > 0) {
