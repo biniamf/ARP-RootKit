@@ -23,7 +23,7 @@ struct pid_list_node {
 };
 
 /*
- * Declarations
+ * Function declarations.
  */
 int hide_pid(pid_t pid);
 int unhide_pid(pid_t pid);
@@ -48,6 +48,7 @@ extern int (*f_sys_write)(int fd, const char *mem, size_t len);
  * Variable declarations.
  */
 extern struct pid_list_node *pid_list_head, *pid_list_tail;
+extern const char MSG_OK[], MSG_PID_NF[], MSG_PID_NH[], MSG_KM_ERR[];
 
 void kernel_test(void) {
 
@@ -65,11 +66,11 @@ int hide_pid(pid_t nr) {
 	pid = f_find_vpid(nr);
 	if (pid) {
 		pid_list_push(nr);
-		pinfo("Ok\n");
+		pinfo(MSG_OK);
 
 		return 0;
 	} else {
-		perr("PID not found.\n");
+		perr(MSG_PID_NF);
 	}
 
 	return -1;
@@ -77,11 +78,11 @@ int hide_pid(pid_t nr) {
 
 int unhide_pid(pid_t nr) {
 	if (pid_list_pop(nr) == nr) {
-		pinfo("Ok\n");
+		pinfo(MSG_OK);
 
 		return 0;
 	} else {
-		perr("PID is not hidden.\n");
+		perr(MSG_PID_NH);
 	}
 	
 	return -1;
@@ -97,7 +98,7 @@ void pid_list_push(pid_t nr) {
 		node->next = NULL;
 		node->nr = nr;
 	} else {
-		pinfo("pid_list_push f_kmalloc\n");
+		perr(MSG_KM_ERR, __LINE__);
 	}
 }
 
@@ -221,6 +222,10 @@ void * (*f_kmalloc)(size_t size, gfp_t flags) = NULL;
 struct pid * (*f_find_vpid)(pid_t nr) = NULL;
 int (*f_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args) = NULL;
 int (*f_sys_write)(int fd, const char *mem, size_t len) = NULL;
+const char MSG_OK[] = "Ok\n";
+const char MSG_PID_NF[] = "PID not found.\n";
+const char MSG_PID_NH[] = "PID is not hidden.\n";
+const char MSG_KM_ERR[] = "f_kmalloc error, line %d.\n";
 
 /*
  * Variable definition
