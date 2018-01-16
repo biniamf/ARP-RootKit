@@ -67,6 +67,11 @@ extern void kernel_start(void);
 extern void kernel_code_end(void);
 extern void kernel_end(void);
 
+/*
+ * Global variables.
+ */
+void (*f_kernel_test)(void) = NULL;
+
 int init_module(void)
 {
 	size_t kernel_len, kernel_paglen, kernel_pages;
@@ -110,10 +115,15 @@ int init_module(void)
 		
 		disassemble(kernel_addr, ((unsigned long)&kernel_code_end - (unsigned long)&kernel_start));
 
-		f_kfree(kernel_addr);
-
 		kernel_test();
+		pinfo("kernel_test execution from LKM successful.\n");
 
+		f_kernel_test = kernel_addr + ((unsigned long)&kernel_test - (unsigned long)&kernel_start);
+		pinfo("f_kernel_test at %p\n", f_kernel_test);
+		f_kernel_test();
+		pinfo("f_kernel_test execution from allocated code, successful.\n");
+
+		f_kfree(kernel_addr);
 		return 0;
 	} else {
 		perr("can not allocate memory.\n");
@@ -138,7 +148,7 @@ int disassemble(void *code, size_t code_len) {
 
 	cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_ATT); // CS_OPT_SYNTAX_ATT represents AT&T syntax
 
-	count = cs_disasm(handle, code, code_len, (unsigned long)&kernel_start, 0, &insn);
+	count = cs_disasm(handle, code, code_len, (unsigned long)code, 0, &insn);
 	pinfo("%d instructions disassembled.\n", count);
 	if (count > 0) {
 		for (j = 0; j < count; j++) {
