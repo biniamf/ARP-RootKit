@@ -1,0 +1,3 @@
+*.c linguist-language=C
+*.s linguist-language=ASM
+*.h linguist-language=C

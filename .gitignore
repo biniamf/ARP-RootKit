@@ -1,0 +1,15 @@
+/*
+/*/
+*.o
+*.cmd
+!/capstone/
+!rootkit.old.c
+!LICENSE
+!TODO.md
+!README.md
+!Makefile
+!loader.c
+!kernel.c
+#!relocate-arrays.py
+!.gitattributes
+!.gitignore

