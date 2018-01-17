@@ -1,3 +1,5 @@
+capstone/*.c linguist-language=C
+capstone/*.h linguist-language=C
 *.c linguist-language=C
-*.s linguist-language=ASM
 *.h linguist-language=C
+*.s linguist-language=ASM
