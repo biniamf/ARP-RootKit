@@ -205,10 +205,12 @@ void *search_sct(void) {
 			sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1);
 			return sct;
 		} else{
-			perr("Sorry! call not found when searching sct.\n");
+			// can't write without sys_write() :(
+			//perr("Sorry! call not found when searching sct.\n");
 		}
 	} else {
-		perr("Sorry! jmp address not found when searching sct.\n");
+		// commented after leaving the use of kallsysm_lookup_name() :(
+		//perr("Sorry! jmp address not found when searching sct.\n");
 	}
 
 	return NULL;
