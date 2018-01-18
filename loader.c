@@ -71,15 +71,8 @@ extern tf_sys_write *f_sys_write(void);
  */
 //void *readfile(const char *file, size_t *len);
 int disassemble(void *code, size_t code_len);
-void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len) {
-	while (hs_len >= n_len) {
-		hs_len--;
-		if (!memcmp(haystack, needle, n_len))
-			return (void *)haystack;
-		haystack++;
-	}
-	return NULL;
-}
+void *search_sct(void);
+void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len);
 
 /*
  * Labels.
@@ -144,15 +137,20 @@ int init_module(void)
 		f_kernel_test();
 		pinfo("f_kernel_test execution from allocated code, successful.\n");
 
-		void *syscall_entry = __rdmsr(MSR_LSTAR);
-		void *sct = memmem(syscall_entry, 0x1000, "\xff\x14\xc5", 3);
-		pinfo("syscall_entry = %p, sys_call_table = %p\n", syscall_entry, sct);
-		disassemble(syscall_entry, 0x3c);
-		//syscall_entry = 0xb0200010;
-		//disassemble(syscall_entry, 0x3c); 
+		/*
+		 * Search sys_call_table[] address.
+		 */
+		void *sct = search_sct();
+		if (sct) {
+			pinfo("Hurra! sys_call_table = %p\n", sct);
 
-		(*f_kfree())(kernel_addr);
-		return 0;
+
+			(*f_kfree())(kernel_addr);
+
+			return 0;
+		} else {
+			(*f_kfree())(kernel_addr);
+		}
 	} else {
 		perr("can not allocate memory.\n");
 	}
@@ -195,6 +193,39 @@ int disassemble(void *code, size_t code_len) {
 	cs_close(&handle);
 
 	return 0;
+}
+
+void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len) {
+    while (hs_len >= n_len) {
+        hs_len--;
+        if (!memcmp(haystack, needle, n_len))
+            return (void *)haystack;
+        haystack++;
+    }
+    return NULL;
+}
+
+void *search_sct(void) {
+	void *sct = (void *) __rdmsr(MSR_LSTAR);
+	disassemble(sct, 0x3c);
+	sct = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
+	if (memcmp(sct + 3 + 4, "\xff\xe7", 2) == 0) { // found!
+		sct += 3;
+		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1) + (2 + 1 + 0x31);
+		disassemble(sct, 0x40);
+		sct = memmem(sct, 0x100, "\xff\x14\xc5", 3); // search: call *sys_call_table(, %rax, 8)
+		if (sct) {
+			sct += 3;
+			sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1);
+			return sct;
+		} else{
+			perr("Sorry! call not found when searching sct.\n");
+		}
+	} else {
+		perr("Sorry! jmp address not found when searching sct.\n");
+	}
+
+	return NULL;
 }
 
 MODULE_LICENSE("GPL");
