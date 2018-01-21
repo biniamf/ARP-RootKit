@@ -363,6 +363,7 @@ DSTR(MSG_KM_ERR, "f_kmalloc error, line %d.\n")
 DPTR(pid_list_head)
 DPTR(pid_list_tail)
 DPTR(sys_call_table)
+DPTR(old_SYSCALL_handler)
 
 LABEL(kernel_end)
 /*

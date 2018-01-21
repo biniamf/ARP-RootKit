@@ -1,9 +1,19 @@
 # No releases yet
 
-This software is under development.
-There's not even 1 release yet.
+This software is under development.  
+There's not even 1 release yet.  
+  
+Atm I can copy the rootkit kernel into a memory area reserved with kmalloc, and this code is relocatable in any place just by the way it's coded.  
+Checking the protections of the kernel memory pages, we can locate the rootkit in a rwx memory area. By that fault, I'm trying to do variants of the releases after developed this way of detection.  
 
-# Example of working (rootkit.c first commit)
+# Planning of releases
+
+- 1st release: hooking system by replacing syscall addresses from sys_call_table (the well-known way).
+- 2nd release: hooking system by hooking inside the syscalls (helped by capstone).
+- 3rd release: hooking system by replacing the address of the sys_call_table in the int 0x80 and the SYSCALL handler.
+- 4th realase: try to hide processes, files and connections in a different way than hooking syscalls.
+
+# An example of working of process hidding of the 4th release (rootkit.c first commit)
 
 ```
 diwou@diwou-VirtualBox:~/arprootkit$ ps auwx | grep bash | grep root

