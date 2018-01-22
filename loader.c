@@ -1,4 +1,3 @@
-// __get_vm_area
 /*
  * Copyright (c) 2018 Abel Romero Pérez aka D1W0U <abel@abelromero.com>
  *
@@ -51,11 +50,14 @@
 #define PAGE_ROUND_UP(x) ((((unsigned long)(x)) + PAGE_SIZE-1) & (~(PAGE_SIZE-1)))
 
 /*
- * Kernel shared definitions: labels, delta variables and functions.
+ * Kernel shared definitions: labels, variables and functions.
  */
-#include "shared_kernel.h"
+#include "kernel.h"
 
-#include "hook_handlers.h"
+/*
+ * Hook handlers, trampolines, everything about hooking.
+ */
+#include "hooking.h"
 
 /*
  * Loader declarations.
