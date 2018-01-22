@@ -5,10 +5,19 @@ EXTRA_CFLAGS := -O0 -I$(PWD)/capstone/include -DCAPSTONE_USE_SYS_DYN_MEM -DCAPST
 
 KERNEL_HEADERS = /lib/modules/$(shell uname -r)/build
 
+CFLAGS_kernel.o := -mcmodel=small -fpic -fpie
+
 all: arprk
 
+reloctest:
+	echo "\t.text" > reloc_test-asm.s
+	gcc -mcmodel=small -fpic -fpie -S reloc_test.c
+	grep -vE "\.cfi|\.file|\.text|\.rodata|\.bss|\.data|\.version|\.section|\.align|\.p2align|\.balign|\.ident|__fentry__|__stack_chk_fail" reloc_test.s >> reloc_test-asm.s 
+	#| sed -e 's/movl\t\$$\.LC\([0-9]\+\), %e\([a-z]\{2\}\)/movabs\t\$$\.LC\1, %r\2/g' >> reloc_test-asm.s
+	gcc -o reloc_test reloc_test-asm.s
+
 arprk:
-	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) kernel.s
+	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) EXTRA_CLAGS="-fpic" kernel.s
 	echo "\t.data" > kernel-asm.s
 	grep -vE "\.file|\.text|\.rodata|\.bss|\.data|\.version|\.section|\.align|\.p2align|\.balign|\.ident|__fentry__|__stack_chk_fail" kernel.s >> kernel-asm.s
 	#python relocate-arrays.py > kernel-asm.relocated.s

