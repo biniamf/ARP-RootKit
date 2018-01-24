@@ -395,6 +395,7 @@ void *disass_search_inst_range_addr(void *addr, const char *inst, const char *fm
             }
             cs_free(insn, count);
 			pos_count = 0;
+			addr_found = NULL;
         } else {
             pinfo("ERROR: Failed to disassemble given code!\n");
             cs_close(&handle);
@@ -634,6 +635,7 @@ void *search_ia32sct_int80h(unsigned int **psct_addr) {
 
 void *search_sct_fastpath(unsigned int **psct_addr) {
 	void *sct = (void *) __rdmsr(MSR_LSTAR);
+	void *tmp = NULL;
 	// DO NOT call disassemble() in this function as sys_write is not yet imported!
 	// or import sys_write into f_sys_write before calling:
 	//*f_sys_write() = kallsyms_lookup_name("sys_write");
@@ -643,11 +645,12 @@ void *search_sct_fastpath(unsigned int **psct_addr) {
 		sct += 3;
 		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1) + (2 + 1 + 0x31);
 		//disassemble(sct, 0x200);
-		//sct = memmem(sct, 0x200, "\xff\x14\xc5", 3); // search: call *sys_call_table(, %rax, 8)
-		sct = disass_search_opstr_addr(sct, "(, %rax, 8)", "-%x", 0x200, 1, (void **)psct_addr);
-		if (sct) {
-			//sct += 3;
-			//*psct_addr = (unsigned int *)sct;
+		tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "*-%x", 0x200, 1, (void **)psct_addr); // search for a direct call with offset
+		if (tmp == NULL) {
+			tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "-%x", 0x200, 1, (void **)psct_addr); // search for a mov with offset
+		}
+		if (tmp != NULL) {
+			sct = tmp;
 			sct = (void *) ((long) sct * -1);
 			return sct;
 		} else{
