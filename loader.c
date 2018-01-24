@@ -58,7 +58,7 @@
 #include <linux/kallsyms.h>
 #include <linux/rculist.h>
 #include <linux/hash.h>
-#include <linux/sched/signal.h>
+//#include <linux/sched/signal.h>
 #include <linux/module.h>       /* Needed by all modules */
 #include <linux/kernel.h>       /* Needed for KERN_INFO */
 #include <linux/init.h>         /* Needed for the macros */
@@ -106,6 +106,7 @@ void hook_kernel_funcs(void);
 void *search___vmalloc_node_range(void *__vmalloc);
 inline unsigned long my_gate_offset(const gate_desc *g);
 extern int set_memory_x(unsigned long addr, int numpages);
+inline unsigned long long notrace my_rdmsr(unsigned int msr);
 
 /*
  * Global variables.
@@ -635,7 +636,7 @@ void *search_ia32sct_int80h(unsigned int **psct_addr) {
 }
 
 void *search_sct_fastpath(unsigned int **psct_addr) {
-	void *sct = (void *) __rdmsr(MSR_LSTAR);
+	void *sct = (void *) my_rdmsr(MSR_LSTAR);
 	void *tmp = NULL;
 	// DO NOT call disassemble() in this function as sys_write is not yet imported!
 	// or import sys_write into f_sys_write before calling:
@@ -669,7 +670,7 @@ void *search_sct_fastpath(unsigned int **psct_addr) {
 
 // v4.13.0-31: 2nd call to distance >= 0x6f0000 <= 0xa10000
 void *search_sct_slowpath(unsigned int **psct_addr) {
-	void *sct = (void *) __rdmsr(MSR_LSTAR);
+	void *sct = (void *) my_rdmsr(MSR_LSTAR);
 	void *tmp = NULL;
 	tmp = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
 	if (tmp != NULL && memcmp(tmp + 3 + 4, "\xff\xe7", 2) == 0) { // found!
@@ -705,6 +706,18 @@ inline unsigned long my_gate_offset(const gate_desc *g)
 #else
     return g->offset_low | ((unsigned long)g->offset_middle << 16);
 #endif
+}
+
+inline unsigned long long notrace my_rdmsr(unsigned int msr)
+{
+    DECLARE_ARGS(val, low, high);
+
+    asm volatile("1: rdmsr\n"
+             "2:\n"
+             _ASM_EXTABLE_HANDLE(1b, 2b, ex_handler_rdmsr_unsafe)
+             : EAX_EDX_RET(val, low, high) : "c" (msr));
+
+    return EAX_EDX_VAL(val, low, high);
 }
 
 MODULE_LICENSE("GPL");
