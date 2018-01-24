@@ -58,7 +58,6 @@
 #include <linux/kallsyms.h>
 #include <linux/rculist.h>
 #include <linux/hash.h>
-//#include <linux/sched/signal.h>
 #include <linux/module.h>       /* Needed by all modules */
 #include <linux/kernel.h>       /* Needed for KERN_INFO */
 #include <linux/init.h>         /* Needed for the macros */
@@ -75,6 +74,16 @@
 #define PAGE_ROUND_DOWN(x) (((unsigned long)(x)) & (~(PAGE_SIZE-1)))
 #define PAGE_ROUND_UP(x) ((((unsigned long)(x)) + PAGE_SIZE-1) & (~(PAGE_SIZE-1)))
 #define CPA_ARRAY 2
+#ifdef CONFIG_X86_64
+/* Using 64-bit values saves one instruction clearing the high half of low */
+#define DECLARE_ARGS(val, low, high)    unsigned long low, high
+#define EAX_EDX_VAL(val, low, high) ((low) | (high) << 32)
+#define EAX_EDX_RET(val, low, high) "=a" (low), "=d" (high)
+#else
+#define DECLARE_ARGS(val, low, high)    unsigned long long val
+#define EAX_EDX_VAL(val, low, high) (val)
+#define EAX_EDX_RET(val, low, high) "=A" (val)
+#endif
 
 /*
  * Kernel shared definitions: labels, variables and functions.
@@ -669,9 +678,11 @@ void *search_sct_fastpath(unsigned int **psct_addr) {
 }
 
 // v4.13.0-31: 2nd call to distance >= 0x6f0000 <= 0xa10000
+// in v4.4.101 the do_syscall_64 isn't exist. So, we search for another sys_call_table taken from search_sct_fastpath(), inside SYSCALL entry.
 void *search_sct_slowpath(unsigned int **psct_addr) {
 	void *sct = (void *) my_rdmsr(MSR_LSTAR);
 	void *tmp = NULL;
+	unsigned int sct_off = 0;
 	tmp = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
 	if (tmp != NULL && memcmp(tmp + 3 + 4, "\xff\xe7", 2) == 0) { // found!
 		sct = tmp;
@@ -683,14 +694,22 @@ void *search_sct_slowpath(unsigned int **psct_addr) {
 	tmp = disass_search_inst_range_addr(sct, "call", "%lx", 0x300, 2, 0x6f0000, 0xa10000, (void **)psct_addr);
 	if (tmp != NULL) {
 		sct = tmp;
-		pinfo("do_syscall_64 at %p\n", sct);
+		pinfo("do_syscall_64 maybe at %p\n", sct);
 		tmp = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
 		if (tmp != NULL) {
 			sct = tmp;
 			sct = (void *)((long) sct * -1);
 			return sct;
 		} else {
-			perr("Sorry, can't locate call with sys_call_table.\n");
+			sct = (void *) my_rdmsr(MSR_LSTAR);
+	        tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "*-%x", 0x200, 2, (void **)psct_addr); // search for a direct call with offset
+	        if (tmp != NULL) {
+	            sct = tmp;
+	            sct = (void *)((long) sct * -1);
+	            return sct;
+	        } else {
+				perr("Sorry, can't locate call with sys_call_table.\n");
+			}
 		}
 	} else {
 		perr("Sorry, can't locate do_syscall_64.\n");
@@ -712,10 +731,7 @@ inline unsigned long long notrace my_rdmsr(unsigned int msr)
 {
     DECLARE_ARGS(val, low, high);
 
-    asm volatile("1: rdmsr\n"
-             "2:\n"
-             _ASM_EXTABLE_HANDLE(1b, 2b, ex_handler_rdmsr_unsafe)
-             : EAX_EDX_RET(val, low, high) : "c" (msr));
+    asm("rdmsr" : EAX_EDX_RET(val, low, high) : "c" (msr));
 
     return EAX_EDX_VAL(val, low, high);
 }
