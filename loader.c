@@ -28,7 +28,7 @@
  *  - __vmalloc_node_range
  *
  * The code in kernel.c is compiled in the module in the .data section.
- * So we only need to use set_memory_x to test it from inside the LKM.
+ * So we only need to use set_memory_x to test it from inside the LKM (and also to use some functions inside kernel.c).
  * But maybe we can use __vmalloc_node_range() and PAGE_KERNEL_EXEC, to avoid
  * the use of set_memory_x, as we know it's working (because at the beggining of dev I didn't know if the code was working even in the LKM context).
  *
@@ -83,7 +83,7 @@
 #include "kernel.h"
 
 /*
- * Hook handlers, trampolines, everything about hooking.
+ * Hook handlers, backups, everything about hooking.
  */
 #include "hooking.h"
 
@@ -95,6 +95,8 @@ int disassemble(void *code, size_t code_len);
 void *disass_search_inst_addr(void *code, const char *inst, const char *fmt, size_t max, int position, void **location_addr);
 void *search_sct_fastpath(unsigned int **psct_addr);
 void *search_sct_slowpath(unsigned int **psct_addr);
+void *search_ia32sct_int80h(unsigned int **psct_addr);
+
 void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len);
 void hook_kernel_funcs(void);
 //int set_memory_rw(unsigned long addr, int pages);
@@ -121,6 +123,8 @@ int init_module(void)
 	void *kernel_addr = NULL, *tmp = NULL;
 	long addr = 0;
 	int ret = 0;
+	size_t off;
+    char zero = 0;
 
     kernel_len = &kernel_end - &kernel_start;
     kernel_paglen = PAGE_ROUND_UP((unsigned long)&kernel_start + (kernel_len - 1)) - PAGE_ROUND_DOWN(&kernel_start);
@@ -188,7 +192,7 @@ int init_module(void)
 	}
 	pinfo("sys_call_table len = %d\n", my_sct_len);
 
-	my_sct = f__vmalloc_node_range(PAGE_ROUND_UP(my_sct_len * sizeof(void *)), 2,
+	my_sct = f__vmalloc_node_range(PAGE_ROUND_UP(my_sct_len * sizeof(void *)), 1,
                     MODULES_VADDR,
                     MODULES_END, GFP_KERNEL,
                     PAGE_KERNEL, 0, NUMA_NO_NODE,
@@ -200,9 +204,7 @@ int init_module(void)
 	}
 
 	// zero memory
-	size_t off;
-	char zero = 0;
-	for(off = 0; off < PAGE_SIZE * 2; off ++) {
+	for(zero = 0, off = 0; off < PAGE_ROUND_UP(my_sct_len * sizeof(void *)); off ++) {
 		ret = probe_kernel_write((void *)((long)my_sct + off), &zero, sizeof(char));
 		if (ret != 0) {
 			perr("Sorry, can't zero memory for our sct.\n");
@@ -237,20 +239,16 @@ int init_module(void)
 		perr("Sorry, error while replacing sys_call_table on SYSCALL handler.\n");
 		return 0;
 	}
-
 	pinfo("after psct_fastpath = %x, psct_slowpath = %x\n", *psct_fastpath, *psct_slowpath);
 
 	/*
 	 * Install the new sct into int $0x80.
 	 */
-	struct desc_ptr idtr;
-	store_idt(&idtr);
-	pinfo("IDT address = %p, size = %d\n", idtr.address, idtr.size);
-	gate_desc *idt = (gate_desc *) idtr.address;
-	addr = (0xffffffffffffffff - (0 - (unsigned int)gate_offset(&idt[0x80])) + 1);
-	pinfo("int 0x80 handler address = %p\n", addr);
+	ia32_sys_call_table = search_ia32sct_int80h(&pia32sct);
+	pinfo("ia32_sys_call_table = %p, ia32sct_location = %p\n", ia32_sys_call_table, pia32sct);
 
-	/*
+/*
+	// restore SYSCALL handler
 	addr = (int) sys_call_table;
     disable_wp();
     ret = probe_kernel_write(psct_fastpath, &addr, sizeof(int));
@@ -258,9 +256,8 @@ int init_module(void)
     enable_wp();
 
 	pinfo("restored psct_fastpath = %x, psct_slowpath = %x\n", *psct_fastpath, *psct_slowpath);
-	*/
+*/
 
-	//set_memory_ro(PAGE_ROUND_DOWN(psct_fastpath), 1);
 
 /*
 	pinfo("%p\n", __rdmsr(MSR_LSTAR));
@@ -268,10 +265,7 @@ int init_module(void)
 	p[0] = 0x90;
 	disassemble(p, 1);
 */
-/*	void * (*f__vmalloc_node_range)(unsigned long size, unsigned long align,
-            unsigned long start, unsigned long end, gfp_t gfp_mask,
-            pgprot_t prot, unsigned long vm_flags, int node,
-            const void *caller) = kallsyms_lookup_name("__vmalloc_node_range");
+/*	
 	unsigned long mstart = (unsigned long)get_cpu_entry_area(nr_cpu_ids);
 	unsigned long mend = (unsigned long)get_cpu_entry_area(nr_cpu_ids + 1) - PAGE_SIZE;
 	size_t msize = mend - mstart;
@@ -291,8 +285,7 @@ int init_module(void)
 		pinfo("MSR_LSTAR = %p, cpu_entry_area(%d) = %p, offset = %lx\n", p, i, get_cpu_entry_area(i), p - (unsigned long)get_cpu_entry_area(i));
 		disassemble((unsigned long)get_cpu_entry_area(i) + 0x5000, 0x3c);
 	}
-	*/
-//	return 0;
+*/
 
 	//printk("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_addr = %p, kernel_pagdown_addr = %p\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
 
@@ -399,6 +392,8 @@ void *disass_search_inst_addr(void *addr, const char *inst, const char *fmt, siz
         	cs_free(insn, count);
 			if (pos_count == position) {
 				break;
+			} else {
+				pos_count = 0;
 			}
 	    } else {
     	    pinfo("ERROR: Failed to disassemble given code!\n");
@@ -498,6 +493,28 @@ void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_l
         haystack++;
     }
     return NULL;
+}
+
+void *search_ia32sct_int80h(unsigned int **psct_addr) {
+	void *ia32sct = NULL;
+    struct desc_ptr idtr;
+    gate_desc *idt = NULL;
+
+    store_idt(&idtr);
+    pinfo("IDT address = %p, size = %d\n", idtr.address, idtr.size);
+    idt = (gate_desc *) idtr.address;
+    ia32sct = (0xffffffffffffffff - (0 - (unsigned int)gate_offset(&idt[0x80])) + 1);
+    pinfo("int 0x80 handler address = %p\n", ia32sct);
+	ia32sct = disass_search_inst_addr(ia32sct, "call", "%lx", 0x100, 2, (void **)psct_addr);
+	if (ia32sct != NULL) {
+		ia32sct = disass_search_inst_addr(ia32sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
+		if (ia32sct != NULL) {
+			ia32sct = (void *)((long) ia32sct * -1);
+			return ia32sct;
+		}
+	}
+
+	return NULL;
 }
 
 void *search_sct_fastpath(unsigned int **psct_addr) {
