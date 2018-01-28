@@ -11,6 +11,7 @@ It must find the rootkit's sys_call_table from the opcodes in the kernel.
 # Tested versions
 
 Until commit https://github.com/D1W0U/ARP-RootKit/commit/3ac1022783b8b81225a54989fe10513c31e93a0b, those Linux Kernel versions are tested (under Ubuntu):  
+- 4.13.0-32-generic
 - 4.13.0-31-generic  
 - 4.13.0-26-generic  
 - 4.11.0-13-generic  
