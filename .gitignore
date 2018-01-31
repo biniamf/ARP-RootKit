@@ -13,4 +13,5 @@
 #!relocate-arrays.py
 !.gitattributes
 !.gitignore
-!shared_kernel.h
+!kernel.h
+!hooking.h
