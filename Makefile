@@ -19,7 +19,7 @@ reloctest:
 arprk:
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) kernel.s
 	echo "\t.data" > kernel-asm.s
-	grep -vE "\.file|\.text|\.rodata|\.bss|\.data|\.version|\.section|\.align|\.p2align|\.balign|\.ident|__fentry__|__stack_chk_fail" kernel.s | sed -e 's/current_task@PLT/current_task/g' -e 's/cpu_tss@PLT/cpu_tss/g' >> kernel-asm.s
+	grep -vE "\.file|\.text|\.rodata|\.bss|\.data|\.version|\.section|\.align|\.p2align|\.balign|\.ident|__fentry__" kernel.s | sed -e 's/current_task@PLT/current_task/g' -e 's/cpu_tss@PLT/cpu_tss/g' >> kernel-asm.s
 	#python relocate-arrays.py > kernel-asm.relocated.s
 	#mv kernel-asm.relocated.s kernel-asm.s
 	gcc -o kernel-asm.o -c kernel-asm.s

@@ -37,11 +37,15 @@
  */
 LABEL(kernel_start)
 
+#include <net/sock.h>
+#include <linux/skbuff.h>
 #include <linux/net.h>
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/kallsyms.h>
+#include <linux/mman.h>
+#include <linux/file.h>
 
 #include "kernel.h"
 #include "hooks.h"
@@ -100,6 +104,9 @@ int (*f_printk)(const char *fmt, ...) = NULL;
 struct socket * (*f_sockfd_lookup)(int fd, int *err) = NULL;
 long (*f_probe_kernel_write)(void *dst, const void *src, size_t len) = NULL;
 int (*f_strncmp)(const char *s1, const char *s2, size_t len) = NULL;
+struct file * (*f_fget)(unsigned int fd) = NULL;
+void (*f_fput)(struct file *) = NULL;
+struct socket * (*f_sock_from_file)(struct file *file, int *err) = NULL;
 
 /*
  * Hooked function handlers.

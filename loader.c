@@ -63,6 +63,7 @@
 #include <linux/vmalloc.h>
 #include <asm/desc.h>
 #include <linux/net.h>
+#include <linux/file.h>
 #include <asm/msr.h>
 #include <linux/slab.h>
 #include <linux/namei.h>
@@ -97,9 +98,9 @@
 #define EAX_EDX_VAL(val, low, high) (val)
 #define EAX_EDX_RET(val, low, high) "=A" (val)
 #endif
-#define sleep(var) for(var = 0; var <= 1024 * 1024 * 1024; var++) {}
+//#define sleep(var) for(var = 0; var <= 1024 * 1024 * 1024; var++) {}
 //#define sleep(var)
-
+#define sleep(var) pinfo("Press ENTER to continue..."); KSYSCALL(__NR_read, 0, &var, 1, 0, 0, 0)
 /*
  * Kernel shared definitions: labels, variables and functions.
  */
@@ -186,6 +187,9 @@ int init_module(void)
 	f_sockfd_lookup = sockfd_lookup;
 	f_strncmp = strncmp;
 	f_probe_kernel_write = probe_kernel_write;
+	f_fget = fget;
+	f_fput = fput;
+	f_sock_from_file = sock_from_file;
 
 	/*
      * uncomment this to be able to print into stdout/stderr with pinfo() and perr() functions, in dev mode.
@@ -374,8 +378,6 @@ int init_module(void)
 		//(*f_kfree())(kernel_addr);
 
 		install_hooks();
-		sleep(ret);
-		sleep(ret);
 		sleep(ret);
 		uninstall_hooks();
 	} else {
