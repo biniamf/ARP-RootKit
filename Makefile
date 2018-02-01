@@ -5,7 +5,7 @@ EXTRA_CFLAGS := -O0 -I$(PWD)/capstone/include -DCAPSTONE_USE_SYS_DYN_MEM -DCAPST
 
 KERNEL_HEADERS = /lib/modules/$(shell uname -r)/build
 
-CFLAGS_kernel.o := -mcmodel=small -fpic -fpie -fPIE -pie
+CFLAGS_kernel.o := -mcmodel=small -fpic -fpie -fPIE -pie -fno-stack-protector
 
 all: arprk
 

