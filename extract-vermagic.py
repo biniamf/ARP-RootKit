@@ -35,6 +35,7 @@ import sys
 import platform
 import re
 import os
+import subprocess
 
 if len(sys.argv) < 2:
 	print "use: " + sys.argv[0] + " </proc/kcore|kernel> [ref]"
@@ -52,29 +53,45 @@ if sys.argv[1] != "/proc/kcore":
 	f.close()
 
 	# remove vmlinux binary
-	os.remove(vmlinux)
+	#os.remove(vmlinux)
 	if len(sys.argv) >= 3:
 	    ref = sys.argv[2]
 	else:
 	    ref = platform.release()
 else:
 	# read kernel binary from /proc/kcore
-	start_addr = 0x81000000
-	end_addr = 0xff000000
+	out = subprocess.check_output(['readelf', '-e', '-g', '-t', '/proc/kcore'])
+	pattern = ' (\S*?) 0xffffffff81000000 .*?\n.*? (0x\S*?) '
+	regex = re.compile(pattern, re.MULTILINE)
+	match = regex.findall(out)
+	#print match
+	#exit(0)
+	off = int(match[0][0], 16)
+	size = int(match[0][1], 16)
 	f = open("/proc/kcore", 'rb')
-	f.seek(-start_addr, os.SEEK_END)
-	data = f.read(end_addr - start_addr)
+	f.seek(off, os.SEEK_SET)
+	data = f.read(size)
 	f.close()
 	ref = platform.release()
 
 # search vermagic
-pattern = "(\x00{16}" + re.escape(ref) + " .*?" + "\x00{31})"
+pattern = "(" + re.escape(ref) + " " + ".*?\x00)"
 print "Reference is release: " + ref
 #print "Searching by regex hex pattern: " + pattern.encode('hex')
 regex = re.compile(pattern)
 
 for match_obj in regex.findall(data):
-	#print "Match!"
-	#print match_obj.encode('hex')
-	#print len(match_obj)
-	print "Found vermagic: \"" + match_obj + "\""
+	length = len(match_obj)
+	remaining = 8 - (length % 8)
+	pattern = "(" + re.escape(match_obj) + "\x00" * (remaining + 8) + ")"
+	#print match_obj
+	#print length
+	#print remaining
+	#print pattern
+	#print pattern.encode('hex')
+	regex = re.compile(pattern)
+	for match_obj in regex.findall(data):
+		#print "Match!"
+		#print match_obj.encode('hex')
+		#print len(match_obj)
+		print "Found vermagic: \"" + match_obj + "\""
