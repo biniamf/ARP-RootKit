@@ -16,3 +16,6 @@
 !kernel.h
 !hooks.h
 !hooks.c
+!extract-vmlinux
+!extract-vermagic.py
+!patch-vermagic.py
