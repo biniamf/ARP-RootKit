@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #
-# License:
+## License:
 #
 # Copyright (c) 2018 Abel Romero Perez aka D1W0U <abel@abelromero.com>
 #
@@ -19,19 +19,17 @@
 # You should have received a copy of the GNU General Public License
 # along with ARP RootKit.  If not, see <http://www.gnu.org/licenses/>.
 #
-# Description:
+## Description:
 #
-# Modifies the vermagic of a Linux Kernel Module, to be the same than
-# the one defined in the Linux Kernel Image, of the system where this
-# script is ran.
+# Searches the VERSION_MAGIC macro value defined in Linux Kernel headers,
+# for the current kernel.
+# It searches in /proc/kcore, vmlinuz images, and Linux Kernel Modules.
 #
-# Dependencies:
+## Dependencies:
 #
-# 1.a) A Linux Kernel image
-#	2) extract-vmlinux
-#		3) 
-# 1.b) /proc/kcore
-# 	2) readelf
+# 1) readelf
+# 2) objcopy
+# 3) extract-vmlinux deps
 #
 
 import sys
@@ -41,44 +39,42 @@ import os
 import subprocess
 
 # max memory range size
-max_size = 0x03000000
-min_size = 0x01000000
+kcore_max_size = 0x03000000
+kcore_min_size = 0x01000000
 
 def search_in_data (data, ref):
     # search vermagic
     pattern = "(" + re.escape(ref) + " " + ".*?\x00)"
     #print "Reference is release: " + ref
-    #print "Searching by regex hex pattern: " + pattern.encode('hex')
+    #print "Searching by regex hex pattern: " + pattern
     regex = re.compile(pattern)
     matches = []
-    for match_obj in regex.findall(data):
-        length = len(match_obj)
-        remaining = 8 - (length % 8)
-        pattern = "(" + re.escape(match_obj) + "\x00" * (remaining + 8) + ")"
-        #print match_obj
+    for match in regex.findall(data):
+        length = len(match)
+        remaining = (8 - (length % 8))
+        pattern = "(" + re.escape(match) + "\x00" * remaining + "(?:(?:\x00{0})|(?:\x00{8})|(?:\x00{16})|(?:\x00{24})))(?!\x00)"
+        #print "\"" + match + "\""
         #print length
         #print remaining
         #print pattern
         #print pattern.encode('hex')
         regex = re.compile(pattern)
-        for match_obj in regex.findall(data):
+        for match in regex.findall(data):
             #print "Match!"
             #print match_obj.encode('hex')
             #print len(match_obj)
-            #print "Found vermagic: \"" + match_obj + "\""
-            matches.append(match_obj)
+            #print "Found vermagic: \"" + match + "\""
+            matches.append(match)
     return matches
 
-if len(sys.argv) < 2:
-	print "use: " + sys.argv[0] + " </proc/kcore|kernel> [ref]"
-	exit(-1)
-
-if sys.argv[1] != "/proc/kcore":
-	vmlinux = "vmlinux-" + platform.release()
+def search_in_vmlinuz(vmlinuz, ref):
+	vmlinux = "uncompressed.vmlinux"
 
 	# decompress vmlinuz image
-	os.system("./extract-vmlinux " + sys.argv[1] + " > " + vmlinux)
-
+	cmd = "./extract-vmlinux " + vmlinuz + " > " + vmlinux + " 2>/dev/null"
+	#print cmd
+	os.system(cmd)
+	#sys.exit(0)
 	# load vmlinux binary
 	f = open(vmlinux, 'rb')
 	data = f.read()
@@ -86,35 +82,87 @@ if sys.argv[1] != "/proc/kcore":
 
 	# remove vmlinux binary
 	#os.remove(vmlinux)
-	if len(sys.argv) >= 3:
-	    ref = sys.argv[2]
-	else:
-	    ref = platform.release()
 
 	matches = search_in_data(data, ref)
-	for match in matches:
-		print match
+	return matches
 
-else:
-	ref = platform.release()
+def search_in_kcore(ref):
+	if not os.path.exists("/proc/kcore") or not os.path.isfile("/proc/kcore"):
+		return ""
+
+	matches = []
 	# read kernel binary from /proc/kcore (with readelf -e -g -t /proc/kcore)
 	out = subprocess.check_output(['readelf', '-e', '-g', '-t', '/proc/kcore'])
 	pattern = ' (0x\S*?) 0x\S*? .*?\n.*? (0x\S*?) '
 	regex = re.compile(pattern, re.MULTILINE)
-	matches = regex.findall(out)
-	#print matches
-	#exit(0)
-	for match in matches:
-		#print match
-		#exit(0)
-		off = int(match[0], 16)
-		size = int(match[1], 16)
-		if size > max_size or size < min_size:
+	ranges = regex.findall(out)
+	for _range in ranges:
+		off = int(_range[0], 16)
+		size = int(_range[1], 16)
+		if size > kcore_max_size or size < kcore_min_size:
 			continue
 		f = open("/proc/kcore", 'rb')
 		f.seek(off, os.SEEK_SET)
 		data = f.read(size)
 		f.close()
-		matches = search_in_data(data, ref)
-		for match in matches:
-			print match
+		for match in search_in_data(data, ref):
+			#print match
+			matches.append(match)
+	return matches
+
+def search_in_module(lkm, ref):
+	sectfile = "module.modinfo"
+
+	# dump .modinfo of LKM
+	os.system("objcopy --dump-section .modinfo=" + sectfile + " " + lkm)
+
+	# load dumped section file
+	f = open(sectfile, 'rb')
+	data = f.read()
+	f.close()
+
+	# remove sectfile
+	os.remove(sectfile)
+
+	# replace vermagic
+	pattern = "vermagic=(" + ref + " .*?)\x00"
+	regex = re.compile(pattern)
+	matches = regex.findall(data)
+	return matches
+
+def search_in_modules(ref):
+	matches = []
+	for root, subdirs, files in os.walk("/lib/modules"):
+		for _file in files:
+			if _file.endswith(".ko"):
+				path = root + "/" + _file
+				for match in search_in_module(path, ref):
+					matches.append(match)
+	return matches
+
+def search_in_images(ref):
+	matches = []
+	for root, subdirs, files in os.walk("/boot"):
+		for _file in files:
+			path = root + "/" + _file
+			for match in search_in_vmlinuz(path, ref):
+				matches.append(match)
+	return matches
+
+ref = platform.release()
+matches = []
+
+# search vermagic in all .ko files inside /lib/modules, filtering by ref
+matches = list(set(search_in_modules(ref)))
+for match in matches:
+	print "Found in modules: " + match
+
+# search vermagic in all compressend Linux Kernel images in /boot, filtering by ref
+matches = list(set(search_in_images(ref)))
+for match in matches:
+	print "Found in images: " + match
+
+# search vermagic in the memory areas with size in [kcore_min_size, kcore_max_size], filtering by ref
+matches = list(set(search_in_kcore(ref)))
+for match in matches:
+	print "Found in /proc/kcore: " + match
