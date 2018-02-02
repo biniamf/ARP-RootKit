@@ -27,8 +27,11 @@
 #
 # Dependencies:
 #
-# 1) A Linux Kernel Image
-# 2) A Linux Kernel Module
+# 1.a) A Linux Kernel image
+#	2) extract-vmlinux
+#		3) 
+# 1.b) /proc/kcore
+# 	2) readelf
 #
 
 import sys
@@ -36,6 +39,35 @@ import platform
 import re
 import os
 import subprocess
+
+# max memory range size
+max_size = 0x03000000
+min_size = 0x01000000
+
+def search_in_data (data, ref):
+    # search vermagic
+    pattern = "(" + re.escape(ref) + " " + ".*?\x00)"
+    #print "Reference is release: " + ref
+    #print "Searching by regex hex pattern: " + pattern.encode('hex')
+    regex = re.compile(pattern)
+    matches = []
+    for match_obj in regex.findall(data):
+        length = len(match_obj)
+        remaining = 8 - (length % 8)
+        pattern = "(" + re.escape(match_obj) + "\x00" * (remaining + 8) + ")"
+        #print match_obj
+        #print length
+        #print remaining
+        #print pattern
+        #print pattern.encode('hex')
+        regex = re.compile(pattern)
+        for match_obj in regex.findall(data):
+            #print "Match!"
+            #print match_obj.encode('hex')
+            #print len(match_obj)
+            #print "Found vermagic: \"" + match_obj + "\""
+            matches.append(match_obj)
+    return matches
 
 if len(sys.argv) < 2:
 	print "use: " + sys.argv[0] + " </proc/kcore|kernel> [ref]"
@@ -58,40 +90,31 @@ if sys.argv[1] != "/proc/kcore":
 	    ref = sys.argv[2]
 	else:
 	    ref = platform.release()
+
+	matches = search_in_data(data, ref)
+	for match in matches:
+		print match
+
 else:
-	# read kernel binary from /proc/kcore
-	out = subprocess.check_output(['readelf', '-e', '-g', '-t', '/proc/kcore'])
-	pattern = ' (\S*?) 0xffffffff81000000 .*?\n.*? (0x\S*?) '
-	regex = re.compile(pattern, re.MULTILINE)
-	match = regex.findall(out)
-	#print match
-	#exit(0)
-	off = int(match[0][0], 16)
-	size = int(match[0][1], 16)
-	f = open("/proc/kcore", 'rb')
-	f.seek(off, os.SEEK_SET)
-	data = f.read(size)
-	f.close()
 	ref = platform.release()
-
-# search vermagic
-pattern = "(" + re.escape(ref) + " " + ".*?\x00)"
-print "Reference is release: " + ref
-#print "Searching by regex hex pattern: " + pattern.encode('hex')
-regex = re.compile(pattern)
-
-for match_obj in regex.findall(data):
-	length = len(match_obj)
-	remaining = 8 - (length % 8)
-	pattern = "(" + re.escape(match_obj) + "\x00" * (remaining + 8) + ")"
-	#print match_obj
-	#print length
-	#print remaining
-	#print pattern
-	#print pattern.encode('hex')
-	regex = re.compile(pattern)
-	for match_obj in regex.findall(data):
-		#print "Match!"
-		#print match_obj.encode('hex')
-		#print len(match_obj)
-		print "Found vermagic: \"" + match_obj + "\""
+	# read kernel binary from /proc/kcore (with readelf -e -g -t /proc/kcore)
+	out = subprocess.check_output(['readelf', '-e', '-g', '-t', '/proc/kcore'])
+	pattern = ' (0x\S*?) 0x\S*? .*?\n.*? (0x\S*?) '
+	regex = re.compile(pattern, re.MULTILINE)
+	matches = regex.findall(out)
+	#print matches
+	#exit(0)
+	for match in matches:
+		#print match
+		#exit(0)
+		off = int(match[0], 16)
+		size = int(match[1], 16)
+		if size > max_size or size < min_size:
+			continue
+		f = open("/proc/kcore", 'rb')
+		f.seek(off, os.SEEK_SET)
+		data = f.read(size)
+		f.close()
+		matches = search_in_data(data, ref)
+		for match in matches:
+			print match
