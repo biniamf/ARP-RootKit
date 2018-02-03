@@ -15,3 +15,4 @@
 !hooks.h
 !hooks.c
 !patch-lkm.py
+!extract-vmlinux
