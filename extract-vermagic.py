@@ -145,24 +145,30 @@ def search_in_images(ref):
 	for root, subdirs, files in os.walk("/boot"):
 		for _file in files:
 			path = root + "/" + _file
-			for match in search_in_vmlinuz(path, ref):
-				matches.append(match)
+			info = subprocess.check_output(["file", path])
+			if "bzImage" in info and ref in info:
+				#print info
+				for match in search_in_vmlinuz(path, ref):
+					matches.append(match)
 	return matches
 
 ref = platform.release()
 matches = []
 
 # search vermagic in all .ko files inside /lib/modules, filtering by ref
-matches = list(set(search_in_modules(ref)))
-for match in matches:
-	print "Found in modules: " + match
+#for match in list(set(search_in_modules(ref))):
+	#print "Found in modules: " + match
+#	matches.append(match)
 
 # search vermagic in all compressend Linux Kernel images in /boot, filtering by ref
-matches = list(set(search_in_images(ref)))
-for match in matches:
-	print "Found in images: " + match
+for match in list(set(search_in_images(ref))):
+	#print "Found in images: " + match
+	matches.append(match)
 
 # search vermagic in the memory areas with size in [kcore_min_size, kcore_max_size], filtering by ref
-matches = list(set(search_in_kcore(ref)))
-for match in matches:
-	print "Found in /proc/kcore: " + match
+#for match in list(set(search_in_kcore(ref))):
+	#print "Found in /proc/kcore: " + match
+#	matches.append(match)
+
+matches = list(set(matches))
+print matches[0]

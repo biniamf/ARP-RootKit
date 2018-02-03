@@ -22,64 +22,28 @@
 # Description:
 #
 # Modifies the vermagic of a Linux Kernel Module, to be the same than
-# the one defined in the Linux Kernel Image, of the system where this
-# script is ran.
-#
-# Dependencies:
-#
-# 1) A Linux Kernel Image
-# 2) A Linux Kernel Module
+# the one defined in the running system.
 #
 
 import sys
 import platform
 import re
 import os
+import subprocess
 
-if len(sys.argv) < 3:
-	print sys.argv[0] + ": <kernel> <module> [ref]"
+if len(sys.argv) < 2:
+	print sys.argv[0] + ": <module>"
 	exit(-1)
 
-vmlinux = "vmlinux-" + platform.release()
+module = sys.argv[1]
 
-# decompress vmlinuz image
-os.system("./extract-vmlinux " + sys.argv[1] + " > " + vmlinux)
+print "Detecting current vermagic ..."
+new_vermagic = subprocess.check_output(["python", "extract-vermagic.py"]).rstrip()
 
-# load vmlinux binary
-f = open(vmlinux, 'rb')
-data = f.read()
-f.close()
-
-# remove vmlinux binary
-os.remove(vmlinux)
-
-if len(sys.argv) >= 4:
-	ref = sys.argv[3]
-else:
-	ref = platform.release()
-
-# search vermagic
-pattern = "(" + re.escape(ref) + " .*?" + "\x00{1,7})"
-print "Reference is release: " + ref
-#print "Searching by regex hex pattern: " + pattern.encode('hex')
-regex = re.compile(pattern)
-
-for match_obj in regex.findall(data):
-	#print "Match!"
-	#print match_obj.encode('hex')
-	#print len(match_obj)
-	print "Found vermagic: " + match_obj
-
-if len(match_obj) == 0:
-	print "Sorry, not found."
-	sys.exit(-1)
-
-new_vermagic = match_obj
-
-sectfile = sys.argv[2] + ".modinfo"
+sectfile = module + ".modinfo"
 
 # dump .modinfo of LKM
-os.system("objcopy --dump-section .modinfo=" + sectfile + " " + sys.argv[2])
+os.system("objcopy --dump-section .modinfo=" + sectfile + " " + module)
 
 # load dumped section file
 f = open(sectfile, 'rb')
@@ -90,7 +54,7 @@ f.close()
 os.remove(sectfile)
 
 # replace vermagic
-pattern = "vermagic=(.*?)\x00"
+pattern = "vermagic=([\S\s]*?)\x00"
 regex = re.compile(pattern)
 for match_obj in regex.findall(data):
 	print "Replacing \"" + match_obj + "\" by \"" + new_vermagic + "\""
@@ -105,7 +69,7 @@ f.write(data)
 f.close()
 
 # patch LKM
-os.system("objcopy --update-section .modinfo=" + sectfile + " " + sys.argv[2])
+os.system("objcopy --update-section .modinfo=" + sectfile + " " + module)
 
 # remove sectfile
 os.remove(sectfile)

@@ -1,0 +1,305 @@
+#!/usr/bin/python
+#
+## License:
+#
+# Copyright (c) 2018 Abel Romero Perez aka D1W0U <abel@abelromero.com>
+#
+# This file is part of ARP RootKit.
+#
+# ARP RootKit is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# ARP RootKit is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with ARP RootKit.  If not, see <http://www.gnu.org/licenses/>.
+#
+## Description:
+#
+# Patches a Linux Kernel Module, to accomplish the requesites to be loaded
+# in the current Kernel, without looking into compatibility issues.
+#
+# Just patches the vermagic variable, and (re)generates the __versions section if need.
+#
+
+import sys
+import platform
+import re
+import os
+import subprocess
+
+def match_vermagics(data, ref):
+	# search vermagics
+	pattern = "(" + re.escape(ref) + " " + ".*?\x00)"
+	#print "Reference is release: " + ref
+	#print "Searching by regex hex pattern: " + pattern
+	regex = re.compile(pattern)
+	vermagics = []
+	for match in regex.findall(data):
+		length = len(match)
+		remaining = (8 - (length % 8))
+		pattern = "(" + re.escape(match) + "\x00" * remaining + "(?:(?:\x00{0})|(?:\x00{8})|(?:\x00{16})|(?:\x00{24})))(?!\x00)"
+		#print "\"" + match + "\""
+		#print length
+		#print remaining
+		#print pattern
+		#print pattern.encode('hex')
+		regex = re.compile(pattern)
+		for vermagic in regex.findall(data):
+			#print "Match!"
+			#print match_obj.encode('hex')
+			#print len(match_obj)
+			#print "Found vermagic: \"" + match + "\""
+			vermagics.append(vermagic)
+	return vermagics
+
+def extract_vmlinuz(vmlinuz, vmlinux):
+	# decompress vmlinuz image
+	cmd = "./extract-vmlinux " + vmlinuz + " > " + vmlinux + " 2>/dev/null"
+	#print cmd
+	os.system(cmd)
+	#sys.exit(0)
+
+def extract_vermagic(vmlinux):
+	# load vmlinux binary
+	f = open(vmlinux, 'rb')
+	data = f.read()
+	f.close()
+
+	vermagics = match_vermagics(data, ref)
+	return vermagics
+
+def search_vmlinuzes(ref):
+	paths = []
+	for root, subdirs, files in os.walk("/boot"):
+		for _file in files:
+			path = root + "/" + _file
+			info = subprocess.check_output(["file", path])
+			if "bzImage" in info and ref in info:
+				print "Found possible vmlinuz " + path
+				paths.append(path)
+	return paths
+
+def extract_sections(vmlinux, sections):
+	sectfiles = []
+	for section in sections:
+		sectfile = vmlinux + "." + section
+		print "Extracting section " + section + " of " + vmlinux + " in " + sectfile + " ..."
+		cmd = "objcopy --dump-section " + section + "=" + sectfile + " " + vmlinux
+		os.system(cmd)
+		sectfiles.append(sectfile)
+	return sectfile
+
+def extract_symbols(module, symfile):
+	print "Extracting imported symbols of " + module + " into " + symfile + " ..."
+	cmd = "readelf -s --wide " + module + " | grep UND | grep GLOBAL | awk '{ print $8}' > " + symfile
+	os.system(cmd)
+	with open(symfile) as f:
+		symbols = f.readlines()
+	# you may also want to remove whitespace characters like `\n` at the end of each line
+	symbols = [line.strip() for line in symbols]
+	symbols.reverse()
+	symbols = ["module_layout"] + symbols
+	print str(len(symbols)) + " symbols imported (added module_layout): "
+	print symbols
+	return symbols 
+
+def generate_versions(vmlinux, symbols, versecfile):
+	print "Building structure in memory from Kernel sections ..."
+	# get address of __ksymtab_strings in Kernel image
+	data = subprocess.check_output(["readelf", "-t", vmlinux])
+	pattern = "__ksymtab_strings\n[ \S]*?([0-9a-f]{16}?) "
+	regex = re.compile(pattern)
+	for addr in regex.findall(data):
+		print "Address of __ksymtab_strings is " + addr
+		addr = int(addr, 16)
+	# build structures to access symbol_names => CRCs
+	f2 = open(vmlinux + "." + "__ksymtab_strings", 'rb')
+	# build ksymtab
+	f = open(vmlinux + "." + "__ksymtab", 'rb')
+	data = f.read()
+	f.close()
+	# ffffffff81db95b0
+	pattern = "[\0-\xff]{8}([\0-\xff]{8})"
+	regex = re.compile(pattern)
+	ksymtab = []
+	for ksym in regex.findall(data):
+		ksym = ksym[::-1]
+		#print ksym.encode('hex')
+		off = int(ksym.encode('hex'), 16)
+		#print off
+		off = off - addr
+		#print off
+		f2.seek(off, os.SEEK_SET)
+		ksym = ""
+		while True:
+			byte = f2.read(1)
+			if byte == '':
+				print "Sorry, end of file reached."
+				sys.exit(-1)
+			elif byte == "\0":
+				break
+			ksym = ksym + byte
+		#print ksym
+		ksymtab.append(ksym)
+	print str(len(ksymtab)) + " exported symbols from __ksymtab ..."
+	# build ksymtab_gpl
+	f = open(vmlinux + "." + "__ksymtab_gpl", 'rb')
+	data = f.read()
+	f.close()
+	# ffffffff81db95b0
+	pattern = "[\0-\xff]{8}([\0-\xff]{8})"
+	regex = re.compile(pattern)
+	ksymtab_gpl = []
+	for ksym in regex.findall(data):
+		ksym = ksym[::-1]
+		#print ksym.encode('hex')
+		off = int(ksym.encode('hex'), 16)
+		#print off
+		off = off - addr
+		#print off
+		f2.seek(off, os.SEEK_SET)
+		ksym = ""
+		while True:
+			byte = f2.read(1)
+			if byte == '':
+				print "Sorry, end of file reached."
+				sys.exit(-1)
+			elif byte == "\0":
+				break
+			ksym = ksym + byte
+		#print ksym
+		ksymtab_gpl.append(ksym)
+	print str(len(ksymtab_gpl)) + " exported GPL symbols from __ksymtab_gpl ..."
+	f2.close()
+	# build kcrctab
+	f = open(vmlinux + "." + "__kcrctab")
+	data = f.read()
+	f.close()
+	pattern = "([\0-\xff]{8})"
+	regex = re.compile(pattern)
+	kcrctab = []
+	for crc in regex.findall(data):
+		kcrctab.append(crc)
+	print str(len(kcrctab)) + " CRCs found in __kcrctab ..."
+	# build kcrctab_gpl
+	f = open(vmlinux + "." + "__kcrctab_gpl")
+	data = f.read()
+	f.close()
+	pattern = "([\0-\xff]{8})"
+	regex = re.compile(pattern)
+	kcrctab_gpl = []
+	for crc in regex.findall(data):
+		kcrctab_gpl.append(crc)
+	print str(len(kcrctab_gpl)) + " GPL CRCs found in __kcrctab_gpl ..."
+	print str(len(kcrctab) + len(kcrctab_gpl)) + " total CRCs found in Kernel Image ..."
+	print "Generating __versions section in " + versecfile + " ..."
+	versec = ""
+	for symbol in symbols:
+		#print "Searching CRC for symbol: " + symbol + " ..."
+		success = False
+		for i, ksym in enumerate(ksymtab):
+			if ksym == symbol:
+				#print "Found CRC " + crcs[i] + " for symbol " + symbol + " ..."
+				verentry = kcrctab[i] + ksym
+				verentry = verentry + "\x00" * (0x40 - len(verentry))
+				versec = versec + verentry
+				success = True
+				break
+		if success:
+			continue
+		for i, ksym in enumerate(ksymtab_gpl):
+			if ksym == symbol:
+				#print "Found CRC " + crcs[i] + " for symbol " + symbol + " ..."
+				verentry = kcrctab_gpl[i] + ksym
+				verentry = verentry + "\x00" * (0x40 - len(verentry))
+				versec = versec + verentry
+				success = True
+				break
+		if not success:
+			print "Sorry, can't find CRC for symbol: " + symbol
+			sys.exit(-1)
+	print "Section __version is " + str(len(versec)) + " bytes of length ..."
+	f = open(versecfile, "wb")
+	f.write(versec)
+	f.close()
+	print versecfile + " section file generated ..."
+
+def update_section(module, versecfile):
+	print "Updating section __versions of module " + module + " ..."
+	cmd = "objcopy --update-section __versions=" + versecfile + " " + module
+	os.system(cmd)
+
+def update_modinfo(module, vermagic):
+	sectfile = module + ".modinfo"
+
+	# dump .modinfo of LKM
+	os.system("objcopy --dump-section .modinfo=" + sectfile + " " + module)
+
+	# load dumped section file
+	f = open(sectfile, 'rb')
+	data = f.read()
+	f.close()
+
+	# remove sectfile
+	os.remove(sectfile)
+
+	# replace vermagic
+	pattern = "vermagic=([\S\s]*?)\x00"
+	regex = re.compile(pattern)
+	for match in regex.findall(data):
+		print "Replacing \"" + match + "\" by \"" + vermagic + "\""
+
+	old_vermagic = match
+
+	data = data.replace(old_vermagic, vermagic)
+
+	# save sectfile
+	f = open(sectfile, 'wb')
+	f.write(data)
+	f.close()
+
+	# patch LKM
+	os.system("objcopy --update-section .modinfo=" + sectfile + " " + module)
+
+	# remove sectfile
+	os.remove(sectfile)
+
+## Main
+if len(sys.argv) < 2:
+	print "use: " + sys.argv[0] + " <module>"
+	sys.exit(-1)
+
+module = sys.argv[1]
+ref = platform.release()
+
+vmlinuzes = search_vmlinuzes(ref)
+for vmlinuz in vmlinuzes:
+	vmlinux = "vmlinux-" + ref
+	extract_vmlinuz(vmlinuz, vmlinux)
+	vermagics = extract_vermagic(vmlinux)
+	print "Possible vermagic values for " + vmlinuz + " found:"
+	print vermagics
+	for vermagic in vermagics:
+		if "modversions" in vermagic:
+			print "Kernel " + vmlinuz + " uses modversions ..."
+			sections = ["__ksymtab_strings", "__ksymtab", "__ksymtab_gpl", "__kcrctab", "__kcrctab_gpl"]
+			secfiles = extract_sections(vmlinux, sections)
+			symfile = module + ".symbols"
+			symbols = extract_symbols(module, symfile)
+			versecfile = vmlinux + ".__versions"
+			generate_versions(vmlinux, symbols, versecfile)
+			update_section(module, versecfile)
+			for section in sections:
+				os.remove(vmlinux + "." + section)
+			os.remove(versecfile)
+			os.remove(symfile)
+		update_modinfo(module, vermagic)
+	os.remove(vmlinux)
+
+print "Done!"
