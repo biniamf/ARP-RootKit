@@ -27,6 +27,10 @@ extern int (*f_strncmp)(const char *s1, const char *s2, size_t len);
 extern struct file * (*f_fget)(unsigned int fd);
 extern void (*f_fput)(struct file *);
 extern struct socket * (*f_sock_from_file)(struct file *file, int *err);
+extern size_t (*f_strlen)(const char *);
+extern int (*f_kstrtoull)(const char *s, unsigned int base, unsigned long long *res);
+extern void * (*f_memcpy)(void *dest, const void *src, size_t count);
+
 extern void *kernel_addr;
 extern size_t kernel_len, kernel_paglen, kernel_pages;
 extern void **sys_call_table;
@@ -36,6 +40,11 @@ extern unsigned int *psct_slowpath;
 extern unsigned int *pia32sct;
 extern void **my_sct;
 extern void **my_ia32sct;
+extern struct task_struct *get_current_task(void);
+extern unsigned int get_kernel_tree(void);
+extern mm_segment_t my_get_fs(void);
+extern void my_set_fs(mm_segment_t seg);
+extern unsigned int kernel_tree;
 
 /*
  * Labels.
@@ -50,6 +59,15 @@ extern void kernel_end(void);
 #define SYSCALL64(nr, a1, a2, a3, a4, a5, a6) syscall(sys_call_table, nr, 1, (long)a1, (long)a2, (long)a3, (long)a4, (long)a5, (long)a6)
 #define SYSCALL32(nr, a1, a2, a3, a4, a5, a6) syscall(ia32_sys_call_table, nr, 1, (long)a1, (long)a2, (long)a3, (long)a4, (long)a5, (long)a6)
 #define KADDR(symbol) (void *)(kernel_addr + ((long)&symbol - (long)&kernel_start))
+
+#ifndef LABEL
+#define LABEL(name) asm( \
+"\t.globl\t"#name"\n" \
+"\t.type\t"#name", @function\n" \
+#name":\n" \
+"\t.size\t"#name", .-"#name"\n" \
+);
+#endif
 
 #define KERNEL_H
 

