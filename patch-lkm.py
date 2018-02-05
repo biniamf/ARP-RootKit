@@ -232,8 +232,13 @@ def generate_versions(vmlinux, symbols, versecfile):
 
 def update_section(module, versecfile):
 	print "Updating section __versions of module " + module + " ..."
-	cmd = "objcopy --update-section __versions=" + versecfile + " " + module
-	os.system(cmd)
+	cmd = "objcopy --update-section __versions=" + versecfile + " --set-section-flags __versions=alloc,readonly " + module
+	if os.system(cmd):
+		print "__versions section not found, so couldn't be replaced. Adding it ..."
+		cmd = "objcopy --add-section __versions=" + versecfile + " --set-section-flags __versions=alloc,readonly " + module
+		if os.system(cmd):
+			print "Sorry, error when adding __versions section."
+			sys.exit(-1)
 
 def update_modinfo(module, vermagic):
 	sectfile = module + ".modinfo"

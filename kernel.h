@@ -45,6 +45,7 @@ extern unsigned int get_kernel_tree(void);
 extern mm_segment_t my_get_fs(void);
 extern void my_set_fs(mm_segment_t seg);
 extern unsigned int kernel_tree;
+extern mm_segment_t *addr_limit;
 
 /*
  * Labels.

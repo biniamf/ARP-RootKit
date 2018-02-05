@@ -89,6 +89,7 @@ unsigned int *pia32sct = NULL;
 struct pid_list_node *pid_list_head = NULL;
 struct pid_list_node *pid_list_tail = NULL;
 unsigned int kernel_tree = 0;
+mm_segment_t *addr_limit = 0;
 
 int (*tr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags) = NULL;
 void * (*f_kmalloc)(size_t size, gfp_t flags) = NULL;
@@ -374,40 +375,12 @@ unsigned int get_kernel_tree(void) {
 	return (unsigned int)tree;
 }
 
-void *get_addr_limit(void) {
-    void *c = NULL;
-    off_t offset = 0;
-
-    if (kernel_tree < 8) {
-        // use thread_info to get addr_limit
-        asm("movq\t%%gs:0x14304, %0" : "=r" (c)); // %gs:4+cpu_tss = 0x14300 + 4
-        offset -= 16384;                          // THREAD_SIZE // now points to current thread_info.
-        offset += 24;                             // ->addr_limit
-    } else {
-        // use task_struct to get addr_limit
-		// offset to ->thread.addr_limit equivalent to: val = get_current_task()->thread.addr_limit;
-        if (kernel_tree >= 8 && kernel_tree < 10) {
-            offset = 2784;
-        } else if (kernel_tree >= 10 && kernel_tree <= 11) {
-            offset = 4840;
-        } else {
-            offset = 5024;
-        }
-
-        c = get_current_task();
-    }
-
-	//c = get_fs();
-
-	return c + offset;
-}
-
 inline mm_segment_t my_get_fs(void) {
-	return *(mm_segment_t *)get_addr_limit();
+	return *(mm_segment_t *)addr_limit;
 }
 
 inline void my_set_fs(mm_segment_t seg) {
-	*(mm_segment_t *)get_addr_limit() = seg;
+	*(mm_segment_t *)addr_limit = seg;
 }
 
 /*

@@ -1,8 +1,10 @@
 #include <linux/module.h>       /* Needed by all modules */
+#include <linux/sched.h>
 
 extern int load(void);
 
 int init_module(void) {
+	printk("hello!\n");
     return load();
 }
 
