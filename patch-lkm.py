@@ -55,6 +55,9 @@ def match_vermagics(data, ref):
 			#print match_obj.encode('hex')
 			#print len(match_obj)
 			#print "Found vermagic: \"" + match + "\""
+			vermagic = vermagic.replace("\x00", "")
+			vermagic = "vermagic=" + vermagic
+			vermagic = vermagic + "\x00" * (8 - (len(vermagic) % 8))
 			vermagics.append(vermagic)
 	return vermagics
 
@@ -231,14 +234,16 @@ def generate_versions(vmlinux, symbols, versecfile):
 	print versecfile + " section file generated ..."
 
 def update_section(module, versecfile):
-	print "Updating section __versions of module " + module + " ..."
-	cmd = "objcopy --update-section __versions=" + versecfile + " --set-section-flags __versions=alloc,readonly " + module
+	cmd = "objcopy --update-section __versions=" + versecfile + " --set-section-flags __versions=alloc,readonly " + module + " 2>/dev/null"
 	if os.system(cmd):
-		print "__versions section not found, so couldn't be replaced. Adding it ..."
-		cmd = "objcopy --add-section __versions=" + versecfile + " --set-section-flags __versions=alloc,readonly " + module
+		cmd = "objcopy --add-section __versions=" + versecfile + " --set-section-flags __versions=alloc,readonly --section-alignment 32 " + module
 		if os.system(cmd):
 			print "Sorry, error when adding __versions section."
 			sys.exit(-1)
+		else:
+			print "Added section __versions in " + module
+	else:
+		print "Updated section __versions in " + module
 
 def update_modinfo(module, vermagic):
 	sectfile = module + ".modinfo"
@@ -255,10 +260,13 @@ def update_modinfo(module, vermagic):
 	os.remove(sectfile)
 
 	# replace vermagic
-	pattern = "vermagic=([\S\s]*?)\x00"
+	pattern = "(vermagic=[\S\s]*?\x00+)"
 	regex = re.compile(pattern)
 	for match in regex.findall(data):
-		print "Replacing \"" + match + "\" by \"" + vermagic + "\""
+		print "Replacing:"
+		print [match]
+		print "by:"
+		print [vermagic] 
 
 	old_vermagic = match
 
@@ -270,7 +278,10 @@ def update_modinfo(module, vermagic):
 	f.close()
 
 	# patch LKM
-	os.system("objcopy --update-section .modinfo=" + sectfile + " " + module)
+	if os.system("readelf -t --wide " + module + " | grep \".old.modinfo\""):
+		os.system("objcopy --rename-section .modinfo=.old.modinfo " + module)
+	os.system("objcopy --remove-section .modinfo " + module)
+	os.system("objcopy --add-section .modinfo=" + sectfile + " --set-section-flags .modinfo=alloc,readonly --section-alignment 8 " + module)
 
 	# remove sectfile
 	os.remove(sectfile)

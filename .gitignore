@@ -17,3 +17,4 @@
 !main.c
 !patch-lkm.py
 !extract-vmlinux
+!rela-patch.c
