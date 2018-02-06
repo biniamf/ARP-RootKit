@@ -18,3 +18,4 @@
 !patch-lkm.py
 !extract-vmlinux
 !rela-patch.c
+!remove-unused.py
