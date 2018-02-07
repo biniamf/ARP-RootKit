@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
 		} else if ((tree >= 10 && tree <= 13) || tree == 15) {
 			r0_off = 376;
 			r1_off = 776;
-		} else if (tree == 14) {
+		} else if (tree >= 14 && tree <= 15) {
 			r0_off = 376;
 			r1_off = 800;
 		} else {
