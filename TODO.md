@@ -2,7 +2,8 @@
 - ADD SUPPORT:
 	- v4.7.10 rela-patch different, scts not found.
 	- v4.10, 4.11, 4.12, 4.13 (possible 4.14 and 4.15) my_read64 broken.
-	- v4.14 sct not found
+	- v4.14, v4.15 sct not found.
+	- v4.15 strange get_addr_limit() results.
 - Remove symbols from /proc/kallsyms
 - Hide module
 - Communication API
