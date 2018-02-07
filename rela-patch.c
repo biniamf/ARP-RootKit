@@ -55,12 +55,21 @@ int main(int argc, char *argv[]) {
 		print = 1;
 	} else {
 		tree = atoi(argv[1]);
-		if (tree >= 4 && tree <= 8) {
+		if (tree >= 4 && tree <= 6) {
 			r0_off = 384;
 			r1_off = 816;
-		} else if (tree > 8) {
+		} else if(tree == 7) {
+			r0_off = 344;
+			r1_off = 768;
+		} else if(tree >= 8 && tree <= 9) {
+			r0_off = 384;
+			r1_off = 832;
+		} else if ((tree >= 10 && tree <= 13) || tree == 15) {
 			r0_off = 376;
 			r1_off = 776;
+		} else if (tree == 14) {
+			r0_off = 376;
+			r1_off = 800;
 		} else {
 			print = 1;
 		}
