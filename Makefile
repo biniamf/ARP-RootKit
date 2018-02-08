@@ -30,6 +30,7 @@ arprk:
 	mv kernel-asm2.s kernel-asm.s
 	gcc -o kernel-asm.o -c kernel-asm.s
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) modules
+	gcc rela-patch.c -o rela-patch
 	sudo python3 patch-lkm.py arprk.ko
 
 clean:

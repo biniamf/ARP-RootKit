@@ -27,6 +27,7 @@
 # Just patches the vermagic variable, and (re)generates the __versions section if need.
 #
 
+import struct
 import sys
 import platform
 import re
@@ -120,11 +121,12 @@ def generate_versions(vmlinux, symbols, versecfile):
 	print ("Building structure in memory from Kernel sections ...")
 	# get address of __ksymtab_strings in Kernel image
 	data = subprocess.check_output(["readelf", "-t", vmlinux])
-	pattern = "__ksymtab_strings\n[ \S]*?([0-9a-f]{16}?) "
+	pattern = b"__ksymtab_strings\n[ \S]*?([0-9a-f]{16}?) "
 	regex = re.compile(pattern)
 	for addr in regex.findall(data):
-		print ("Address of __ksymtab_strings is " + addr)
+		print ("Address of __ksymtab_strings is " + addr.decode('utf-8'))
 		addr = int(addr, 16)
+		#print (addr)
 	# build structures to access symbol_names => CRCs
 	f2 = open(vmlinux + "." + "__ksymtab_strings", 'rb')
 	# build ksymtab
@@ -136,20 +138,24 @@ def generate_versions(vmlinux, symbols, versecfile):
 	regex = re.compile(pattern)
 	ksymtab = []
 	for ksym in regex.findall(data):
-		ksym = ksym[::-1]
-		#print ksym.encode('hex')
-		off = int(ksym.encode('hex'), 16)
-		#print off
+		#print (ksym)
+		#ksym = ksym[::-1]
+		#print (ksym)
+		off = struct.unpack("=Q", ksym)
+		#print(off)
+		off = off[0]
+		#off = int(ksym.decode().encode('hex'), 16)
+		#print (off)
 		off = off - addr
-		#print off
+		#print (off)
 		f2.seek(off, os.SEEK_SET)
-		ksym = ""
+		ksym = b""
 		while True:
 			byte = f2.read(1)
-			if byte == '':
+			if byte == b"":
 				print ("Sorry, end of file reached.")
 				sys.exit(-1)
-			elif byte == "\0":
+			elif byte == b"\0":
 				break
 			ksym = ksym + byte
 		#print ksym
@@ -165,20 +171,22 @@ def generate_versions(vmlinux, symbols, versecfile):
 	regex = re.compile(pattern)
 	ksymtab_gpl = []
 	for ksym in regex.findall(data):
-		ksym = ksym[::-1]
+		#ksym = ksym[::-1]
 		#print ksym.encode('hex')
-		off = int(ksym.encode('hex'), 16)
+		#off = int(ksym.encode('hex'), 16)
+		off = struct.unpack("=Q", ksym)
+		off = off[0]
 		#print off
 		off = off - addr
 		#print off
 		f2.seek(off, os.SEEK_SET)
-		ksym = ""
+		ksym = b""
 		while True:
 			byte = f2.read(1)
-			if byte == '':
+			if byte == b"":
 				print ("Sorry, end of file reached.")
 				sys.exit(-1)
-			elif byte == "\0":
+			elif byte == b"\0":
 				break
 			ksym = ksym + byte
 		#print ksym
@@ -186,7 +194,7 @@ def generate_versions(vmlinux, symbols, versecfile):
 	print (str(len(ksymtab_gpl)) + " exported GPL symbols from __ksymtab_gpl ...")
 	f2.close()
 	# build kcrctab
-	f = open(vmlinux + "." + "__kcrctab")
+	f = open(vmlinux + "." + "__kcrctab", 'rb')
 	data = f.read()
 	f.close()
 	pattern = b"([\0-\xff]{8})"
@@ -196,7 +204,7 @@ def generate_versions(vmlinux, symbols, versecfile):
 		kcrctab.append(crc)
 	print (str(len(kcrctab)) + " CRCs found in __kcrctab ...")
 	# build kcrctab_gpl
-	f = open(vmlinux + "." + "__kcrctab_gpl")
+	f = open(vmlinux + "." + "__kcrctab_gpl", "rb")
 	data = f.read()
 	f.close()
 	pattern = b"([\0-\xff]{8})"
@@ -207,15 +215,18 @@ def generate_versions(vmlinux, symbols, versecfile):
 	print (str(len(kcrctab_gpl)) + " GPL CRCs found in __kcrctab_gpl ...")
 	print (str(len(kcrctab) + len(kcrctab_gpl)) + " total CRCs found in Kernel Image ...")
 	print ("Generating __versions section in " + versecfile + " ...")
-	versec = ""
+	versec = b""
 	for symbol in symbols:
 		#print "Searching CRC for symbol: " + symbol + " ..."
 		success = False
+		symbol = symbol.encode()
 		for i, ksym in enumerate(ksymtab):
+			#print (ksym)
+			#print (symbol)
 			if ksym == symbol:
 				#print "Found CRC " + crcs[i] + " for symbol " + symbol + " ..."
 				verentry = kcrctab[i] + ksym
-				verentry = verentry + "\x00" * (0x40 - len(verentry))
+				verentry = verentry + b"\x00" * (0x40 - len(verentry))
 				versec = versec + verentry
 				success = True
 				break
@@ -225,12 +236,12 @@ def generate_versions(vmlinux, symbols, versecfile):
 			if ksym == symbol:
 				#print "Found CRC " + crcs[i] + " for symbol " + symbol + " ..."
 				verentry = kcrctab_gpl[i] + ksym
-				verentry = verentry + "\x00" * (0x40 - len(verentry))
+				verentry = verentry + b"\x00" * (0x40 - len(verentry))
 				versec = versec + verentry
 				success = True
 				break
 		if not success:
-			print ("Sorry, can't find CRC for symbol: " + symbol)
+			print ("Sorry, can't find CRC for symbol: " + symbol.decode('utf-8'))
 			sys.exit(-1)
 	print ("Section __version is " + str(len(versec)) + " bytes of length ...")
 	f = open(versecfile, "wb")
