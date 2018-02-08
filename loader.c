@@ -173,7 +173,7 @@ int load(void)
 
 	addr_limit = search_addr_limit();
 	if (addr_limit == NULL) {
-		return 0;
+		return -2;
 	}
 
     kernel_len = &kernel_end - &kernel_start;
@@ -226,10 +226,10 @@ int load(void)
 	 */
 	tmp = search_sct_fastpath(&psct_fastpath);
 	if (tmp == NULL) {
-		return 0;
+		return -2;
 	}
 	if (search_sct_slowpath(&psct_slowpath) != tmp) {
-		return 0;
+		return -2;
 	}
 	sys_call_table = tmp;
     ia32_sys_call_table = search_ia32sct_int80h(&pia32sct);
@@ -254,7 +254,7 @@ int load(void)
 		pinfo("Hurra! __vmalloc_node_range() = %p\n", f__vmalloc_node_range);
 	} else {
 		perr("Sorry, can't find __vmalloc_node_range().\n");
-		return 0;
+		return -2;
 	}
 
 	/*
@@ -263,7 +263,7 @@ int load(void)
 	ret = sct_len(sys_call_table, &my_sct_len);
 	if (ret != 0) {
 		perr("Sorry, sct_len(sys_call_table) ret = %d.\n", ret);
-		return 0;
+		return -2;
 	}
 	pinfo("sys_call_table len = %d\n", my_sct_len);
 
@@ -275,7 +275,7 @@ int load(void)
 	//my_sct = vmalloc(my_sct_pagelen);
 	if (my_sct == NULL) {
 		perr("Sorry, can't reserve memory with __vmalloc_node_range() for my_sct.\n");
-		return 0;
+		return -2;
 	}
 	pinfo("reserved %d bytes at %p\n", my_sct_pagelen, my_sct);
 
@@ -283,7 +283,7 @@ int load(void)
 	ret = safe_zero(my_sct, my_sct_pagelen);
 	if (ret != 0) {
 		perr("Sorry, can't zero memory of my_sct.\n");
-		return 0;
+		return -2;
 	}
 	pinfo("my_sct zeroed!\n");
 
@@ -292,7 +292,7 @@ int load(void)
 	ret = clone_sct(my_sct, sys_call_table, my_sct_len);
 	if (ret != 0) {
 		perr("Sorry, can't clone sys_call_table.\n");
-		return 0;
+		return -2;
 	}
 	pinfo("my_sct = %p, len = %d\n", my_sct, my_sct_len);
 
@@ -305,7 +305,7 @@ int load(void)
 	if (ret != 0) {
 		perr("Sorry, sct_len(ia32_sct) ret = %d.\n", ret);
 		// TODO: free memory.
-		return 0;
+		return -2;
 	}
 	pinfo("ia32_sct len = %d\n", my_sct_len);
 
@@ -316,7 +316,7 @@ int load(void)
     my_ia32sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, PAGE_KERNEL, 0, NUMA_NO_NODE, __builtin_return_address(0));
     if (my_ia32sct == NULL) {
         perr("Sorry, can't reserve memory for my_ia32sct.\n");
-        return 0;
+        return -2;
     }
 	pinfo("reserved %d bytes at %p.\n", my_sct_pagelen, my_ia32sct);
 
@@ -326,7 +326,7 @@ int load(void)
     ret = safe_zero(my_ia32sct, my_sct_pagelen);
     if (ret != 0) {
         perr("Sorry, can't zero memory for our sct.\n");
-        return 0;
+        return -2;
     }
     pinfo("my_ia32sct zeroed!\n");	
 
@@ -336,7 +336,7 @@ int load(void)
 	if (ret != 0) {
 		perr("Sorry, clone_sct(my_ia32sct) ret = %d.\n", ret);
 		// TODO: free memory
-		return 0;
+		return -2;
 	}
 	pinfo("ia32_sct cloned at = %p\n", my_ia32sct);
 
@@ -355,7 +355,7 @@ int load(void)
     enable_wp();
     if (ret != 0) {
         perr("Sorry, error while replacing sys_call_table on SYSCALL handler.\n");
-        return 0;
+        return -2;
     }
     pinfo("after psct_fastpath = %x, psct_slowpath = %x, pia32sct = %x\n", *psct_fastpath, *psct_slowpath, *pia32sct);
 
@@ -379,7 +379,7 @@ int load(void)
 		ret = probe_kernel_write(kernel_addr, &kernel_start, kernel_len);
 		if (ret != 0) {
 			perr("Sorry, can't copy kernel to its place.\n");
-			return 0;
+			return -2;
 		}
 		//memcpy(kernel_addr, &kernel_start, kernel_len);
 		//pinfo("kernel is now copied to kernel_addr.\n");
@@ -407,9 +407,10 @@ int load(void)
 		uninstall_hooks();
 	} else {
 		perr("can not allocate memory.\n");
+		return -2;
 	}
 
-    return 0;
+    return -1;
 }
 
 void install_hooks(void) {

@@ -8,8 +8,8 @@ int init_module(void) {
     return load();
 }
 
-void cleanup_module(void) {
-}
+//void cleanup_module(void) {
+//}
 
 MODULE_LICENSE("GPL");
 //MODULE_INFO(intree, "Y");

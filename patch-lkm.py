@@ -149,6 +149,7 @@ def generate_versions(vmlinux, symbols, versecfile):
 				break
 			ksym = ksym + byte
 		#print ksym
+		print ksym
 		ksymtab.append(ksym)
 	print str(len(ksymtab)) + " exported symbols from __ksymtab ..."
 	# build ksymtab_gpl

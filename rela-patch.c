@@ -37,7 +37,7 @@
 #include <elf.h>
 
 int main(int argc, char *argv[]) {
-	int fd = 0, i = 0, tree = 0, print = 0;
+	int fd = 0, i = 0, tree = 0, print = 0, j = 0;
 	size_t map_sz = 0;
 	void *map = NULL;
 	char *shstrtab = NULL;
@@ -100,7 +100,9 @@ int main(int argc, char *argv[]) {
 				rela[0].r_offset = r0_off;
 				rela[1].r_offset = r1_off;
 			} else {
-				printf("%ld\n%ld\n", rela[0].r_offset, rela[1].r_offset);
+				for (j = 0; j < sec[i].sh_size / sizeof(Elf64_Rela); j++) {
+					printf("%ld\n%p\n", rela[j].r_offset, rela[j].r_info);
+				}
 			}
 			break;
 			//printf("%s\n", shstrtab + sec[i].sh_name);
