@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
 	int fd = 0, i = 0, tree = 0, print = 0, j = 0;
 	size_t map_sz = 0;
 	void *map = NULL;
-	char *shstrtab = NULL;
+	char *shstrtab = NULL, *lkm = NULL;
 	Elf64_Ehdr *elf = NULL;
 	Elf64_Shdr *sec = NULL;
 	Elf64_Rela *rela = NULL;
@@ -53,22 +53,23 @@ int main(int argc, char *argv[]) {
 
 	if (strncmp(argv[1], "-v", 2) == 0) {
 		print = 1;
+		lkm = argv[2];
 	} else if (strncmp(argv[1], "-p", 2) == 0) {
 		if (argc < 5) {
 			fprintf(stderr, "with %s, must specify init_offset and exit_offset.\n", argv[1]);
 			return -1;
 		}
 
-		r0_off = atoi(argv[3]);
-		r1_off = atoi(argv[4]);
-
+		r0_off = atoi(argv[2]);
+		r1_off = atoi(argv[3]);
+		lkm = argv[4];
 		if (r0_off <= 0 || r1_off <= 0) {
-			fprintf(stderr, "invalid offset: init = %d, exit = %d\n", r0_off, r1_off);
+			fprintf(stderr, "invalid offset: init = %ld, exit = %ld\n", r0_off, r1_off);
 			return -1;
 		} 
 	}
 
-	fd = open (argv[2], O_RDWR);
+	fd = open (lkm, O_RDWR);
 	if (fd < 0) {
 		perror("open");
 		return fd;
@@ -94,7 +95,7 @@ int main(int argc, char *argv[]) {
 				rela[1].r_offset = r1_off;
 			} else {
 				for (j = 0; j < sec[i].sh_size / sizeof(Elf64_Rela); j++) {
-					printf("%ld\n%p\n", rela[j].r_offset, rela[j].r_info);
+					printf("%ld\n0x%lx\n", rela[j].r_offset, rela[j].r_info);
 				}
 			}
 			break;
