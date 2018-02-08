@@ -50,12 +50,6 @@ def find_sct(vmlinux, code_start, code_end):
 	os.remove(secdata)
 	return sct
 
-vmlinuz = sys.argv[1]
-vmlinux = "vmlinux"
-cmd = "./extract-vmlinux " + vmlinuz + " > " + vmlinux + " 2>/dev/null"
-if os.system(cmd):
-	sys.exit(-1)
-
 def find_rela_offsets(vmlinux):
 	(code_start, code_end) = get_text_offsets(vmlinux)
 	sct = find_sct(vmlinux, code_start, code_end)
@@ -87,11 +81,18 @@ def find_rela_offsets(vmlinux):
 	os.remove(seccode)
 	return init, exit
 
-vmlinuz = sys.argv[1]
-vmlinux = "vmlinux"
-cmd = "./extract-vmlinux " + vmlinuz + " > " + vmlinux + " 2>/dev/null"
-if os.system(cmd):
-    sys.exit(-1)
-init, exit = find_rela_offsets(vmlinux)
-print ("init = %d\nexit = %d" % (init, exit))
-os.remove(vmlinux)
+if __name__ == "__main__":
+	if len(sys.argv) < 2:
+		print ("use: %s <vmlinuz>" % sys.argv[0])
+		sys.exit(-1)
+
+	vmlinuz = sys.argv[1]
+	vmlinux = "vmlinux"
+	cmd = "./extract-vmlinux " + vmlinuz + " > " + vmlinux + " 2>/dev/null"
+	if os.system(cmd):
+	    sys.exit(-1)
+
+	init, exit = find_rela_offsets(vmlinux)
+	print ("init = %d\nexit = %d" % (init, exit))
+
+	os.remove(vmlinux)

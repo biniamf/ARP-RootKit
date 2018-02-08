@@ -32,10 +32,12 @@ import platform
 import re
 import os
 import subprocess
+rela = __import__("find-rela")
 
 def match_vermagics(data, ref):
 	# search vermagics
 	pattern = "(" + re.escape(ref) + " " + ".*?\x00)"
+	pattern = pattern.encode()
 	#print "Reference is release: " + ref
 	#print "Searching by regex hex pattern: " + pattern
 	regex = re.compile(pattern)
@@ -43,7 +45,8 @@ def match_vermagics(data, ref):
 	for match in regex.findall(data):
 		length = len(match)
 		remaining = (8 - (length % 8))
-		pattern = "(" + re.escape(match) + "\x00" * remaining + "(?:(?:\x00{0})|(?:\x00{8})|(?:\x00{16})|(?:\x00{24})))(?!\x00)"
+		pattern = "(" + re.escape(match.decode()) + "\x00" * remaining + "(?:(?:\x00{0})|(?:\x00{8})|(?:\x00{16})|(?:\x00{24})))(?!\x00)"
+		pattern = pattern.encode()
 		#print "\"" + match + "\""
 		#print length
 		#print remaining
@@ -55,9 +58,10 @@ def match_vermagics(data, ref):
 			#print match_obj.encode('hex')
 			#print len(match_obj)
 			#print "Found vermagic: \"" + match + "\""
-			vermagic = vermagic.replace("\x00", "")
+			vermagic = vermagic.decode().replace("\x00", "")
 			vermagic = "vermagic=" + vermagic
 			vermagic = vermagic + "\x00" * (8 - (len(vermagic) % 8))
+			vermagic = vermagic.encode()
 			vermagics.append(vermagic)
 	return vermagics
 
@@ -83,8 +87,8 @@ def search_vmlinuzes(ref):
 		for _file in files:
 			path = root + "/" + _file
 			info = subprocess.check_output(["file", path])
-			if "bzImage" in info and ref in info:
-				print "Found possible vmlinuz " + path
+			if "bzImage".encode() in info and ref.encode() in info:
+				print ("Found possible vmlinuz " + path)
 				paths.append(path)
 	return paths
 
@@ -92,14 +96,14 @@ def extract_sections(vmlinux, sections):
 	sectfiles = []
 	for section in sections:
 		sectfile = vmlinux + "." + section
-		print "Extracting section " + section + " of " + vmlinux + " in " + sectfile + " ..."
+		print ("Extracting section " + section + " of " + vmlinux + " in " + sectfile + " ...")
 		cmd = "objcopy --dump-section " + section + "=" + sectfile + " " + vmlinux
 		os.system(cmd)
 		sectfiles.append(sectfile)
 	return sectfile
 
 def extract_symbols(module, symfile):
-	print "Extracting imported symbols of " + module + " into " + symfile + " ..."
+	print ("Extracting imported symbols of " + module + " into " + symfile + " ...")
 	cmd = "readelf -s --wide " + module + " | grep UND | grep GLOBAL | awk '{ print $8}' > " + symfile
 	os.system(cmd)
 	with open(symfile) as f:
@@ -108,18 +112,18 @@ def extract_symbols(module, symfile):
 	symbols = [line.strip() for line in symbols]
 	symbols.reverse()
 	symbols = ["module_layout"] + symbols
-	print str(len(symbols)) + " symbols imported (added module_layout): "
-	print symbols
+	print (str(len(symbols)) + " symbols imported (added module_layout): ")
+	print (symbols)
 	return symbols 
 
 def generate_versions(vmlinux, symbols, versecfile):
-	print "Building structure in memory from Kernel sections ..."
+	print ("Building structure in memory from Kernel sections ...")
 	# get address of __ksymtab_strings in Kernel image
 	data = subprocess.check_output(["readelf", "-t", vmlinux])
 	pattern = "__ksymtab_strings\n[ \S]*?([0-9a-f]{16}?) "
 	regex = re.compile(pattern)
 	for addr in regex.findall(data):
-		print "Address of __ksymtab_strings is " + addr
+		print ("Address of __ksymtab_strings is " + addr)
 		addr = int(addr, 16)
 	# build structures to access symbol_names => CRCs
 	f2 = open(vmlinux + "." + "__ksymtab_strings", 'rb')
@@ -128,7 +132,7 @@ def generate_versions(vmlinux, symbols, versecfile):
 	data = f.read()
 	f.close()
 	# ffffffff81db95b0
-	pattern = "[\0-\xff]{8}([\0-\xff]{8})"
+	pattern = b"[\0-\xff]{8}([\0-\xff]{8})"
 	regex = re.compile(pattern)
 	ksymtab = []
 	for ksym in regex.findall(data):
@@ -143,21 +147,21 @@ def generate_versions(vmlinux, symbols, versecfile):
 		while True:
 			byte = f2.read(1)
 			if byte == '':
-				print "Sorry, end of file reached."
+				print ("Sorry, end of file reached.")
 				sys.exit(-1)
 			elif byte == "\0":
 				break
 			ksym = ksym + byte
 		#print ksym
-		print ksym
+		print (ksym)
 		ksymtab.append(ksym)
-	print str(len(ksymtab)) + " exported symbols from __ksymtab ..."
+	print (str(len(ksymtab)) + " exported symbols from __ksymtab ...")
 	# build ksymtab_gpl
 	f = open(vmlinux + "." + "__ksymtab_gpl", 'rb')
 	data = f.read()
 	f.close()
 	# ffffffff81db95b0
-	pattern = "[\0-\xff]{8}([\0-\xff]{8})"
+	pattern = b"[\0-\xff]{8}([\0-\xff]{8})"
 	regex = re.compile(pattern)
 	ksymtab_gpl = []
 	for ksym in regex.findall(data):
@@ -172,37 +176,37 @@ def generate_versions(vmlinux, symbols, versecfile):
 		while True:
 			byte = f2.read(1)
 			if byte == '':
-				print "Sorry, end of file reached."
+				print ("Sorry, end of file reached.")
 				sys.exit(-1)
 			elif byte == "\0":
 				break
 			ksym = ksym + byte
 		#print ksym
 		ksymtab_gpl.append(ksym)
-	print str(len(ksymtab_gpl)) + " exported GPL symbols from __ksymtab_gpl ..."
+	print (str(len(ksymtab_gpl)) + " exported GPL symbols from __ksymtab_gpl ...")
 	f2.close()
 	# build kcrctab
 	f = open(vmlinux + "." + "__kcrctab")
 	data = f.read()
 	f.close()
-	pattern = "([\0-\xff]{8})"
+	pattern = b"([\0-\xff]{8})"
 	regex = re.compile(pattern)
 	kcrctab = []
 	for crc in regex.findall(data):
 		kcrctab.append(crc)
-	print str(len(kcrctab)) + " CRCs found in __kcrctab ..."
+	print (str(len(kcrctab)) + " CRCs found in __kcrctab ...")
 	# build kcrctab_gpl
 	f = open(vmlinux + "." + "__kcrctab_gpl")
 	data = f.read()
 	f.close()
-	pattern = "([\0-\xff]{8})"
+	pattern = b"([\0-\xff]{8})"
 	regex = re.compile(pattern)
 	kcrctab_gpl = []
 	for crc in regex.findall(data):
 		kcrctab_gpl.append(crc)
-	print str(len(kcrctab_gpl)) + " GPL CRCs found in __kcrctab_gpl ..."
-	print str(len(kcrctab) + len(kcrctab_gpl)) + " total CRCs found in Kernel Image ..."
-	print "Generating __versions section in " + versecfile + " ..."
+	print (str(len(kcrctab_gpl)) + " GPL CRCs found in __kcrctab_gpl ...")
+	print (str(len(kcrctab) + len(kcrctab_gpl)) + " total CRCs found in Kernel Image ...")
+	print ("Generating __versions section in " + versecfile + " ...")
 	versec = ""
 	for symbol in symbols:
 		#print "Searching CRC for symbol: " + symbol + " ..."
@@ -226,25 +230,25 @@ def generate_versions(vmlinux, symbols, versecfile):
 				success = True
 				break
 		if not success:
-			print "Sorry, can't find CRC for symbol: " + symbol
+			print ("Sorry, can't find CRC for symbol: " + symbol)
 			sys.exit(-1)
-	print "Section __version is " + str(len(versec)) + " bytes of length ..."
+	print ("Section __version is " + str(len(versec)) + " bytes of length ...")
 	f = open(versecfile, "wb")
 	f.write(versec)
 	f.close()
-	print versecfile + " section file generated ..."
+	print (versecfile + " section file generated ...")
 
 def update_section(module, versecfile):
 	cmd = "objcopy --update-section __versions=" + versecfile + " --set-section-flags __versions=alloc,readonly " + module + " 2>/dev/null"
 	if os.system(cmd):
 		cmd = "objcopy --add-section __versions=" + versecfile + " --set-section-flags __versions=alloc,readonly --section-alignment 32 " + module
 		if os.system(cmd):
-			print "Sorry, error when adding __versions section."
+			print ("Sorry, error when adding __versions section.")
 			sys.exit(-1)
 		else:
-			print "Added section __versions in " + module
+			print ("Added section __versions in " + module)
 	else:
-		print "Updated section __versions in " + module
+		print ("Updated section __versions in " + module)
 
 def update_modinfo(module, vermagic):
 	sectfile = module + ".modinfo"
@@ -261,13 +265,14 @@ def update_modinfo(module, vermagic):
 	os.remove(sectfile)
 
 	# replace vermagic
-	pattern = "(vermagic=[\S\s]*?\x00+)"
+	pattern = b"(vermagic=[\S\s]*?\x00+)"
 	regex = re.compile(pattern)
-	for match in regex.findall(data):
-		print "Replacing:"
-		print [match]
-		print "by:"
-		print [vermagic] 
+	match = regex.findall(data)
+	match = match[0]
+	print ("Replacing:")
+	print ([match])
+	print ("by:")
+	print ([vermagic])
 
 	old_vermagic = match
 
@@ -279,17 +284,18 @@ def update_modinfo(module, vermagic):
 	f.close()
 
 	# patch LKM
-	if os.system("readelf -t --wide " + module + " | grep \".old.modinfo\""):
-		os.system("objcopy --rename-section .modinfo=.old.modinfo " + module)
-	os.system("objcopy --remove-section .modinfo " + module)
-	os.system("objcopy --add-section .modinfo=" + sectfile + " --set-section-flags .modinfo=alloc,readonly --section-alignment 8 " + module)
+	#if os.system("readelf -t --wide " + module + " | grep \".old.modinfo\""):
+	#	os.system("objcopy --rename-section .modinfo=.old.modinfo " + module)
+	#os.system("objcopy --remove-section .modinfo " + module)
+	#os.system("objcopy --add-section .modinfo=" + sectfile + " --set-section-flags .modinfo=alloc,readonly --section-alignment 8 " + module)
+	os.system("objcopy --update-section .modinfo=" + sectfile + " --set-section-flags .modinfo=alloc,readonly " + module)
 
 	# remove sectfile
 	os.remove(sectfile)
 
 ## Main
 if len(sys.argv) < 2:
-	print "use: " + sys.argv[0] + " <module>"
+	print ("use: " + sys.argv[0] + " <module>")
 	sys.exit(-1)
 
 module = sys.argv[1]
@@ -300,11 +306,11 @@ for vmlinuz in vmlinuzes:
 	vmlinux = "vmlinux-" + ref
 	extract_vmlinuz(vmlinuz, vmlinux)
 	vermagics = extract_vermagic(vmlinux)
-	print "Possible vermagic values for " + vmlinuz + " found:"
-	print vermagics
+	print ("Possible vermagic values for " + vmlinuz + " found:")
+	print (vermagics)
 	for vermagic in vermagics:
-		if "modversions" in vermagic:
-			print "Kernel " + vmlinuz + " uses modversions ..."
+		if b"modversions" in vermagic:
+			print ("Kernel " + vmlinuz + " uses modversions ...")
 			sections = ["__ksymtab_strings", "__ksymtab", "__ksymtab_gpl", "__kcrctab", "__kcrctab_gpl"]
 			secfiles = extract_sections(vmlinux, sections)
 			symfile = module + ".symbols"
@@ -317,6 +323,11 @@ for vmlinuz in vmlinuzes:
 			os.remove(versecfile)
 			os.remove(symfile)
 		update_modinfo(module, vermagic)
+
+	# patch .rela.gnu.linkonce.this_module
+	init, exit = rela.find_rela_offsets(vmlinux)
+	print ("init = %d\nexit = %d" % (init, exit))
+
 	os.remove(vmlinux)
 
-print "Done!"
+print ("Done!")

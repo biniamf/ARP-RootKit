@@ -47,32 +47,25 @@ int main(int argc, char *argv[]) {
 	Elf64_Off r0_off = 0, r1_off = 0;
 
 	if (argc < 3) {
-		fprintf(stderr, "use: %s <tree|-p> <lkm>\n", argv[0]);
+		fprintf(stderr, "use: %s <-v|-p> <lkm> [init_offset, exit_offset]\n", argv[0]);
 		return -1;
 	}
 
-	if (strncmp(argv[1], "-p", 2) == 0) {
+	if (strncmp(argv[1], "-v", 2) == 0) {
 		print = 1;
-	} else {
-		tree = atoi(argv[1]);
-		if (tree >= 4 && tree <= 6) {
-			r0_off = 384;
-			r1_off = 816;
-		} else if(tree == 7) {
-			r0_off = 344;
-			r1_off = 768;
-		} else if(tree >= 8 && tree <= 9) {
-			r0_off = 384;
-			r1_off = 832;
-		} else if ((tree >= 10 && tree <= 13) || tree == 15) {
-			r0_off = 376;
-			r1_off = 776;
-		} else if (tree >= 14 && tree <= 15) {
-			r0_off = 376;
-			r1_off = 800;
-		} else {
-			print = 1;
+	} else if (strncmp(argv[1], "-p", 2) == 0) {
+		if (argc < 5) {
+			fprintf(stderr, "with %s, must specify init_offset and exit_offset.\n", argv[1]);
+			return -1;
 		}
+
+		r0_off = atoi(argv[3]);
+		r1_off = atoi(argv[4]);
+
+		if (r0_off <= 0 || r1_off <= 0) {
+			fprintf(stderr, "invalid offset: init = %d, exit = %d\n", r0_off, r1_off);
+			return -1;
+		} 
 	}
 
 	fd = open (argv[2], O_RDWR);
