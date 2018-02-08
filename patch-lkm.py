@@ -255,7 +255,7 @@ def update_modinfo(module, vermagic):
 
 	# dump .modinfo of LKM
 	os.system("objcopy --dump-section .modinfo=" + sectfile + " " + module)
-
+	#os.system("cp %s %s.2" %(sectfile, sectfile))
 	# load dumped section file
 	f = open(sectfile, 'rb')
 	data = f.read()
@@ -265,7 +265,7 @@ def update_modinfo(module, vermagic):
 	os.remove(sectfile)
 
 	# replace vermagic
-	pattern = b"(vermagic=[\S\s]*?\x00+)"
+	pattern = b"(vermagic=[\S\s]*?[\x00]+)"
 	regex = re.compile(pattern)
 	match = regex.findall(data)
 	match = match[0]
@@ -293,6 +293,40 @@ def update_modinfo(module, vermagic):
 	# remove sectfile
 	os.remove(sectfile)
 
+def patch_rela(vmlinux, module):
+	print ("Patching .rela.gnu.linkonce.this_module ...")
+	init, exit = rela.find_rela_offsets(vmlinux)
+	print ("init = %d\nexit = %d" % (init, exit))
+	cmd = "./rela-patch -p %d %d %s" % (init, exit, module)
+	print (cmd)
+	if os.system(cmd):
+		return -1
+	#print ("Resizing .gnu.linkonce.this_module ...")
+	#secfile = "%s.gnu.linkonce.this_module" % module
+	#cmd = "objcopy --dump-section .gnu.linkonce.this_module=%s %s" % (secfile, module)
+	#if os.system(cmd):
+	#	return -1
+	#zero = secfile + ".zero"
+	#cmd = "dd if=/dev/zero of=%s bs=1 count=200" % zero
+	#if os.system(cmd):
+	#	os.remove(secfile)
+	#	return -1
+	#cmd = "cat %s >> %s" % (zero, secfile)
+	#if os.system(cmd):
+	#	os.remove(secfile)
+	#	os.remove(zero)
+	#	return -1
+	#cmd = "objcopy --update-section .gnu.linkonce.this_module=%s %s" % (secfile, module)
+	#if os.system(cmd):
+	#	os.remove(zero)
+	#	os.remove(secfile)
+	#	return -1
+	
+	#os.remove(secfile)
+	#os.remove(zero)
+
+	return 0
+
 ## Main
 if len(sys.argv) < 2:
 	print ("use: " + sys.argv[0] + " <module>")
@@ -300,11 +334,11 @@ if len(sys.argv) < 2:
 
 module = sys.argv[1]
 ref = platform.release()
-
+ret = 0
 vmlinuzes = search_vmlinuzes(ref)
 for vmlinuz in vmlinuzes:
 	vmlinux = "vmlinux-" + ref
-	extract_vmlinuz(vmlinuz, vmlinux)
+	ret = extract_vmlinuz(vmlinuz, vmlinux)
 	vermagics = extract_vermagic(vmlinux)
 	print ("Possible vermagic values for " + vmlinuz + " found:")
 	print (vermagics)
@@ -325,8 +359,7 @@ for vmlinuz in vmlinuzes:
 		update_modinfo(module, vermagic)
 
 	# patch .rela.gnu.linkonce.this_module
-	init, exit = rela.find_rela_offsets(vmlinux)
-	print ("init = %d\nexit = %d" % (init, exit))
+	ret = patch_rela(vmlinux, module)
 
 	os.remove(vmlinux)
 

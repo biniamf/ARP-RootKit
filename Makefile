@@ -1,5 +1,5 @@
 obj-m += arprk.o
-arprk-objs := main.o loader-asm.o kernel-asm.o capstone/cs.o capstone/utils.o capstone/SStream.o capstone/MCInstrDesc.o capstone/MCRegisterInfo.o capstone/arch/X86/X86DisassemblerDecoder.o capstone/arch/X86/X86Disassembler.o capstone/arch/X86/X86IntelInstPrinter.o capstone/arch/X86/X86ATTInstPrinter.o capstone/arch/X86/X86Mapping.o capstone/arch/X86/X86Module.o capstone/MCInst.o
+arprk-objs := main.o mod.o loader-asm.o kernel-asm.o capstone/cs.o capstone/utils.o capstone/SStream.o capstone/MCInstrDesc.o capstone/MCRegisterInfo.o capstone/arch/X86/X86DisassemblerDecoder.o capstone/arch/X86/X86Disassembler.o capstone/arch/X86/X86IntelInstPrinter.o capstone/arch/X86/X86ATTInstPrinter.o capstone/arch/X86/X86Mapping.o capstone/arch/X86/X86Module.o capstone/MCInst.o
 
 EXTRA_CFLAGS := -O0 -I$(PWD)/capstone/include -DCAPSTONE_USE_SYS_DYN_MEM -DCAPSTONE_HAS_X86
 
@@ -30,6 +30,7 @@ arprk:
 	mv kernel-asm2.s kernel-asm.s
 	gcc -o kernel-asm.o -c kernel-asm.s
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) modules
+	sudo python3 patch-lkm.py arprk.ko
 
 clean:
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) clean
