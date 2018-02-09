@@ -35,7 +35,7 @@ arprk:
 	mkdir -p python3/bindings/python/capstone/lib
 	cp python3/libcapstone.so python3/bindings/python/capstone/lib/
 	mkdir -p capstone_python
-	cp -r python3/bindings/python/capstone/ -r capstone_python/
+	cp -r python3/bindings/python/capstone/* capstone_python/
 	sudo python3 patch-lkm.py arprk.ko
 
 clean:
