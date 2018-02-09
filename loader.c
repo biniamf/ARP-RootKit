@@ -101,6 +101,9 @@
 //#define sleep(var) for(var = 0; var <= 1024 * 1024 * 1024; var++) {}
 //#define sleep(var)
 #define sleep(var) pinfo("Press ENTER to continue..."); KSYSCALL(__NR_read, 0, &var, 1, 0, 0, 0)
+#define MY_PAGE_KERNEL_NOENC (__pgprot(__PAGE_KERNEL))
+#define MY_PAGE_KERNEL_EXEC_NOENC (__pgprot(__PAGE_KERNEL_EXEC))
+
 /*
  * Kernel shared definitions: labels, variables and functions.
  */
@@ -271,7 +274,7 @@ int load(void)
 	rseed(get_seconds());
 	module_load_offset = (rand32() % 1024 + 1) * PAGE_SIZE;
 	pinfo("module_load_offset = %x, addr would be = %p\n", module_load_offset, MODULES_VADDR + module_load_offset);
-	my_sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, PAGE_KERNEL, 0, NUMA_NO_NODE, __builtin_return_address(0));
+	my_sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
 	//my_sct = vmalloc(my_sct_pagelen);
 	if (my_sct == NULL) {
 		perr("Sorry, can't reserve memory with __vmalloc_node_range() for my_sct.\n");
@@ -313,7 +316,7 @@ int load(void)
 
 	my_sct_pagelen = PAGE_ROUND_UP(my_sct_len * sizeof(long));
 	// TODO: add KASLR offset in start address.
-    my_ia32sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, PAGE_KERNEL, 0, NUMA_NO_NODE, __builtin_return_address(0));
+    my_ia32sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
     if (my_ia32sct == NULL) {
         perr("Sorry, can't reserve memory for my_ia32sct.\n");
         return -2;
@@ -366,7 +369,7 @@ int load(void)
 	 */
 	pinfo("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_start = %p, kernel_start_pagdown = %p\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
 	//kernel_addr = f_kmalloc(kernel_paglen, GFP_KERNEL);
-	kernel_addr = f__vmalloc_node_range(kernel_paglen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, PAGE_KERNEL_EXEC, 0, NUMA_NO_NODE, __builtin_return_address(0));
+	kernel_addr = f__vmalloc_node_range(kernel_paglen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_EXEC_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
 	if (kernel_addr != NULL) {
 		pinfo("kernel_addr = %p, kernel_addr_pagdown = %p\n", kernel_addr, PAGE_ROUND_DOWN(kernel_addr));
 		/*

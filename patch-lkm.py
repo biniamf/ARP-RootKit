@@ -114,7 +114,7 @@ def extract_symbols(module, symfile):
 	symbols.reverse()
 	symbols = ["module_layout"] + symbols
 	print (str(len(symbols)) + " symbols imported (added module_layout): ")
-	print (symbols)
+	#print (symbols)
 	return symbols 
 
 def generate_versions(vmlinux, symbols, versecfile):
@@ -159,7 +159,7 @@ def generate_versions(vmlinux, symbols, versecfile):
 				break
 			ksym = ksym + byte
 		#print ksym
-		print (ksym)
+		#print (ksym)
 		ksymtab.append(ksym)
 	print (str(len(ksymtab)) + " exported symbols from __ksymtab ...")
 	# build ksymtab_gpl
