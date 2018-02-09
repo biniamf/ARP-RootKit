@@ -1,8 +1,11 @@
 #!/usr/bin/python
+#    _  __  __     __
+#   /_) )_) )_)    )_) _   _  _)_ )_/ o _)_
+#  / / / \ /      / \ (_) (_) (_ /  ) ( (_
 #
-## License:
+## License
 #
-# Copyright (c) 2018 Abel Romero Perez aka D1W0U <abel@abelromero.com>
+# Copyright (c) 2018 Abel Romero Pérez aka D1W0U <abel@abelromero.com>
 #
 # This file is part of ARP RootKit.
 #
@@ -19,12 +22,13 @@
 # You should have received a copy of the GNU General Public License
 # along with ARP RootKit.  If not, see <http://www.gnu.org/licenses/>.
 #
-## Description:
+## Notes
 #
 # Patches a Linux Kernel Module, to accomplish the requesites to be loaded
 # in the current Kernel, without looking into compatibility issues.
 #
-# Just patches the vermagic variable, and (re)generates the __versions section if need.
+# Patches the vermagic variable, (re)generates the __versions section if need,
+# and patches the .rela.gnu.linkonce.this_module section from the kobject.
 #
 
 import struct

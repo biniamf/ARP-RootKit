@@ -1,4 +1,10 @@
-/*
+/***
+ *      _  __  __     __
+ *     /_) )_) )_)    )_) _   _  _)_ )_/ o _)_
+ *    / / / \ /      / \ (_) (_) (_ /  ) ( (_
+ *
+ *//* License
+ *
  * Copyright (c) 2018 Abel Romero Pérez aka D1W0U <abel@abelromero.com>
  *
  * This file is part of ARP RootKit.
@@ -16,12 +22,9 @@
  * You should have received a copy of the GNU General Public License
  * along with ARP RootKit.  If not, see <http://www.gnu.org/licenses/>.
  *
- */
-
-/*
- * Only this is what will get resident in the Linux Kernel.
+ *//* Notes
  *
- * IMPORTANT: If you will be hacking this, USE DELTA MACROS for non-local variables, and do not hardcode strings nor arrays (declare them global with delta macros), because they will not get relocated. 
+ * Only this is what will get resident in the Linux Kernel.
  *
  */
 

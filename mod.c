@@ -1,4 +1,8 @@
-/*
+/***
+ *      _  __  __     __
+ *     /_) )_) )_)    )_) _   _  _)_ )_/ o _)_
+ *    / / / \ /      / \ (_) (_) (_ /  ) ( (_
+ *
  *//* License
  *
  * Copyright (c) 2018 Abel Romero Pérez aka D1W0U <abel@abelromero.com>
@@ -25,6 +29,7 @@
  * And after resizing with objcopy, the .rela.gnu.linkonce.this_module
  * becomes 0 sized. So, we define the size here and patch later.
  */
+
 #include <linux/module.h>
 #include <linux/vermagic.h>
 #include <linux/compiler.h>
