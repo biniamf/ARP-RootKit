@@ -32,6 +32,7 @@ arprk:
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) modules
 	gcc rela-patch.c -o rela-patch
 	make CAPSTONE_ARCHS="x86_64" -C python3
+	make -C python3/bindings
 	mkdir -p python3/bindings/python/capstone/lib
 	cp python3/libcapstone.so python3/bindings/python/capstone/lib/
 	mkdir -p capstone_python
