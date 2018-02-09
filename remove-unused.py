@@ -4,7 +4,7 @@
 #
 ## License
 #
-# Copyright (c) 2018 Abel Romero Pérez aka D1W0U <abel@abelromero.com>
+# Copyright (c) 2018 Abel Romero Perez aka D1W0U <abel@abelromero.com>
 #
 # This file is part of ARP RootKit.
 #

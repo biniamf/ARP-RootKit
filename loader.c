@@ -803,7 +803,7 @@ void *search_ia32sct_int80h(unsigned int **psct_addr) {
     ia32sct = (void *) (0xffffffffffffffff - (0 - (unsigned int)my_gate_offset(&idt[0x80])) + 1);
     pinfo("int 0x80 handler address = %p\n", ia32sct);
 	//ia32sct = disass_search_inst_addr(ia32sct, "call", "%lx", 0x100, 2, (void **)psct_addr);
-	ia32sct = disass_search_inst_range_addr(ia32sct, "call", "%lx", 0x300, 1, 0x6f0000, 0xa10000, (void **)psct_addr);
+	ia32sct = disass_search_inst_range_addr(ia32sct, "call", "%lx", 0x300, 1, 0x500000, 0xa10000, (void **)psct_addr);
 	if (ia32sct != NULL) {
 		ia32sct = disass_search_inst_addr(ia32sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
 		if (ia32sct != NULL) {
@@ -861,7 +861,7 @@ void *search_sct_slowpath(unsigned int **psct_addr) {
 	} else {
 		pinfo("kernel version might be <= 4.11 on (search_sct_slowpath()).\n");
 	}
-	tmp = disass_search_inst_range_addr(sct, "call", "%lx", 0x300, 2, 0x6f0000, 0xa10000, (void **)psct_addr);
+	tmp = disass_search_inst_range_addr(sct, "call", "%lx", 0x300, 2, 0x500000, 0xa10000, (void **)psct_addr);
 	if (tmp != NULL) {
 		sct = tmp;
 		pinfo("do_syscall_64 maybe at %p\n", sct);
