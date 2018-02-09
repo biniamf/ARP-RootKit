@@ -33,8 +33,10 @@ import sys
 import os
 import re
 import struct
-from capstone_python import *
-from capstone_python.x86 import *
+#from capstone_python import *
+#from capstone_python.x86 import *
+from python3.bindings.python.capstone import *
+from python3.bindings.python.capstone.x86 import *
 
 __NR_delete_module = 176
 

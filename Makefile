@@ -32,15 +32,12 @@ arprk:
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) modules
 	gcc rela-patch.c -o rela-patch
 	make CAPSTONE_ARCHS="x86_64" -C python3
-	make -C python3/bindings
 	mkdir -p python3/bindings/python/capstone/lib
 	cp python3/libcapstone.so python3/bindings/python/capstone/lib/
-	mkdir -p capstone_python
-	sudo cp -r python3/bindings/python/capstone/* capstone_python/
+	@echo "Now I'm going to patch the module, but for that I need to access vmlinuz-es from /boot, and I need to be root"
 	sudo python3 patch-lkm.py arprk.ko
 
 clean:
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) clean
 	rm -f *.plist
 	make -C python3 clean
-	sudo rm -rf capstone_python
