@@ -42,3 +42,5 @@ arprk:
 clean:
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) clean
 	rm -f *.plist
+	make -C python3 clean
+	sudo rm -rf capstone_python
