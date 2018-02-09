@@ -42,7 +42,7 @@ __visible struct mymod {
 	char name[MODULE_NAME_LEN]; // 24:  56
 	void *init, *exit;			// 80:   8
 	char zero2[912];            // 88:  912
-	                            // 1000: 
+	// 1000: 
 } mymod
 __attribute__((section(".gnu.linkonce.this_module"))) = {
 	.name = KBUILD_MODNAME,

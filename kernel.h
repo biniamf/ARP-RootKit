@@ -88,11 +88,11 @@ extern void kernel_end(void);
 
 #ifndef LABEL
 #define LABEL(name) asm( \
-"\t.globl\t"#name"\n" \
-"\t.type\t"#name", @function\n" \
+		"\t.globl\t"#name"\n" \
+		"\t.type\t"#name", @function\n" \
 #name":\n" \
-"\t.size\t"#name", .-"#name"\n" \
-);
+		"\t.size\t"#name", .-"#name"\n" \
+		);
 #endif
 
 #define KERNEL_H

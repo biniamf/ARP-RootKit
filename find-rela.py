@@ -112,6 +112,7 @@ def find_rela_offsets(vmlinux):
 	return init, exit
 
 if __name__ == "__main__":
+
 	if len(sys.argv) < 2:
 		print ("use: %s <vmlinuz>" % sys.argv[0])
 		sys.exit(-1)
@@ -120,7 +121,7 @@ if __name__ == "__main__":
 	vmlinux = "vmlinux"
 	cmd = "./extract-vmlinux " + vmlinuz + " > " + vmlinux + " 2>/dev/null"
 	if os.system(cmd):
-	    sys.exit(-1)
+		sys.exit(-1)
 
 	init, exit = find_rela_offsets(vmlinux)
 	print ("init = %d\nexit = %d" % (init, exit))

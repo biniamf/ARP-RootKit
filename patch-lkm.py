@@ -197,7 +197,7 @@ def generate_versions(vmlinux, symbols, versecfile):
 		ksymtab_gpl.append(ksym)
 	print (str(len(ksymtab_gpl)) + " exported GPL symbols from __ksymtab_gpl ...")
 	f2.close()
-	# build kcrctab
+	# build	kcrctab
 	f = open(vmlinux + "." + "__kcrctab", 'rb')
 	data = f.read()
 	f.close()
@@ -313,7 +313,7 @@ def patch_rela(vmlinux, module):
 	init, exit = rela.find_rela_offsets(vmlinux)
 	print ("init = %d\nexit = %d" % (init, exit))
 	cmd = "./rela-patch -p %d %d %s" % (init, exit, module)
-	print (cmd)
+	#print (cmd)
 	if os.system(cmd):
 		return -1
 	#print ("Resizing .gnu.linkonce.this_module ...")
@@ -336,7 +336,7 @@ def patch_rela(vmlinux, module):
 	#	os.remove(zero)
 	#	os.remove(secfile)
 	#	return -1
-	
+
 	#os.remove(secfile)
 	#os.remove(zero)
 

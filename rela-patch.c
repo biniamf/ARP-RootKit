@@ -78,7 +78,7 @@ int main(int argc, char *argv[]) {
 		perror("open");
 		return fd;
 	}
-	
+
 	map_sz = lseek(fd, 0, SEEK_END);
 	lseek(fd, 0, SEEK_SET);
 	map = mmap(0, map_sz, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -127,7 +127,7 @@ int main(int argc, char *argv[]) {
 	//	printf("info:   %lx\n", rela[i].r_info);
 	//	printf("addend: %lx\n", rela[i].r_addend);
 	//}
-		
+
 	if (msync(map, map_sz, MS_SYNC) < 0) {
 		perror("msync");
 		return -1;
