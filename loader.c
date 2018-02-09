@@ -240,6 +240,10 @@ int load(void)
 	}
 	sys_call_table = tmp;
     ia32_sys_call_table = search_ia32sct_int80h(&pia32sct);
+	if (ia32_sys_call_table == NULL) {
+		perr("Sorry, can't find sys_call_table in int 0x80.\n");
+		return -2;
+	}
 
 	pinfo("Hurra! sys_call_table = %p, fastpath_location = %p, slowpath_location = %p, ia32_sys_call_table = %p, pia32sct = %p\n", sys_call_table, psct_fastpath, psct_slowpath,
 	ia32_sys_call_table, pia32sct);
@@ -611,6 +615,7 @@ void *disass_search_inst_addr(void *addr, const char *inst, const char *fmt, siz
                 if (strlen(insn[j].mnemonic) >= strlen(inst) && strncmp(insn[j].mnemonic, inst, strlen(inst)) == 0) {
                     pos_count ++;
                     if (pos_count == position) {
+						//pinfo("->>%s<<--\n", insn[j].op_str);
 						sscanf(insn[j].op_str, fmt, &addr_found);
                         //int r = kstrtou64(insn[j].op_str, 16, (u64 *)&addr_found);
                         //pinfo("r %d %p\n", r, addr_found);
@@ -793,7 +798,7 @@ static inline void my_store_idt(struct desc_ptr *dtr) {
 }
 
 void *search_ia32sct_int80h(unsigned int **psct_addr) {
-	void *ia32sct = NULL;
+	void *ia32sct = NULL, *tmp = NULL;
     struct desc_ptr idtr;
     gate_desc *idt = NULL;
 
@@ -803,10 +808,18 @@ void *search_ia32sct_int80h(unsigned int **psct_addr) {
     ia32sct = (void *) (0xffffffffffffffff - (0 - (unsigned int)my_gate_offset(&idt[0x80])) + 1);
     pinfo("int 0x80 handler address = %p\n", ia32sct);
 	//ia32sct = disass_search_inst_addr(ia32sct, "call", "%lx", 0x100, 2, (void **)psct_addr);
-	ia32sct = disass_search_inst_range_addr(ia32sct, "call", "%lx", 0x300, 1, 0x500000, 0xa10000, (void **)psct_addr);
-	if (ia32sct != NULL) {
-		ia32sct = disass_search_inst_addr(ia32sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
-		if (ia32sct != NULL) {
+	tmp = disass_search_inst_range_addr(ia32sct, "call", "%lx", 0x300, 1, 0x500000, 0xa10000, (void **)psct_addr);
+	if (tmp != NULL) {
+		ia32sct = tmp;
+		tmp = disass_search_inst_addr(ia32sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
+		if (tmp != NULL) {
+			ia32sct = tmp;
+			ia32sct = (void *)((long) ia32sct * -1);
+			return ia32sct;
+		}
+		tmp = disass_search_opstr_addr(ia32sct, "(, %rax, 8)", "-%lx", 0x100, 1, (void **)psct_addr);
+		if (tmp != NULL) {
+			ia32sct = tmp;
 			ia32sct = (void *)((long) ia32sct * -1);
 			return ia32sct;
 		}
@@ -828,7 +841,7 @@ void *search_sct_fastpath(unsigned int **psct_addr) {
 		sct += 3;
 		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1) + (2 + 1 + 0x31);
 	} else {
-		pinfo("kernel version might be <= 4.11 on (search_sct_fastpath()).\n");
+		pinfo("kernel version might be <= 4.11 or >= 4.14 - on (search_sct_fastpath()).\n");
 	}
 
 	//disassemble(sct, 0x200);
@@ -842,7 +855,27 @@ void *search_sct_fastpath(unsigned int **psct_addr) {
 		return sct;
 	} else{
 		// can't write without sys_write() :(
-		perr("Sorry! call not found when searching sct in fastpath.\n");
+		//
+		// well, at this point, maybe the SYSCALL handler is in other section, since v4.14.
+		// so we follow a jmp into stage2
+		tmp = disass_search_opstr_addr(sct, "$-0x", "$-%lx,", 0x100, 1, (void **)psct_addr);
+		if (tmp) {
+			sct = tmp;
+			sct = (void *) ((long) sct * -1);
+			pinfo("found movq to stage2: %p\n", sct);
+			//disassemble(sct, 0x200);
+			tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "*-%x", 0x200, 1, (void **)psct_addr); // search for a direct call with offset
+			if (tmp == NULL) {
+				tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "-%x", 0x200, 1, (void **)psct_addr); // search for a mov with offset
+			}
+			if (tmp) {
+				sct = tmp;
+				sct = (void *) ((long) sct * -1);
+				return sct;
+			}
+		} else {
+			perr("Sorry! call not found when searching sct - search_sct_fastpath()\n");
+		}
 	}
 
 	return NULL;
@@ -859,7 +892,7 @@ void *search_sct_slowpath(unsigned int **psct_addr) {
 		sct += 3;
 		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1);
 	} else {
-		pinfo("kernel version might be <= 4.11 on (search_sct_slowpath()).\n");
+		pinfo("kernel version might be <= 4.11 or >= 4.14 - search_sct_slowpath().\n");
 	}
 	tmp = disass_search_inst_range_addr(sct, "call", "%lx", 0x300, 2, 0x500000, 0xa10000, (void **)psct_addr);
 	if (tmp != NULL) {
@@ -882,7 +915,43 @@ void *search_sct_slowpath(unsigned int **psct_addr) {
 			}
 		}
 	} else {
-		perr("Sorry, can't locate do_syscall_64.\n");
+		tmp = disass_search_opstr_addr(sct, "$-0x", "$-%lx,", 0x100, 1, (void **)psct_addr);
+        if (tmp) {
+            sct = tmp;
+            sct = (void *) ((long) sct * -1);
+            pinfo("found movq to stage2: %p\n", sct);
+            //disassemble(sct, 0x200);
+			tmp = disass_search_inst_range_addr(sct, "call", "%lx", 0x300, 2, 0x500000, 0xa10000, (void **)psct_addr);
+			if (tmp != NULL) {
+				sct = tmp;
+				pinfo("do_syscall_64 maybe at %p\n", sct);
+				disassemble(sct, 0x100);
+				tmp = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
+				if (tmp != NULL) {
+					sct = tmp;
+					sct = (void *)((long) sct * -1);
+					return sct;
+				} else {
+					tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "*-%x", 0x100, 1, (void **)psct_addr); // search for a direct call with offset
+					if (tmp != NULL) {
+						sct = tmp;
+						sct = (void *)((long) sct * -1);
+						return sct;
+					}
+					tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "-%x", 0x100, 1, (void **)psct_addr); // search mov with offset
+					if (tmp) {
+						sct = tmp;
+						sct = (void *)((long) sct * -1);
+						return sct;
+					}
+					perr("Sorry, can't locate sys_call_table inside possible do_syscall_64 - search_sct_slowpath()\n");
+				}
+			} else {
+				perr("Sorry, can't locate stage2 - search_sct_slowpath()\n");
+			}
+        } else {
+			perr("Sorry, can't locate do_syscall_64.\n");
+		}
 	}
 	return NULL;
 }
