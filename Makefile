@@ -31,6 +31,11 @@ arprk:
 	gcc -o kernel-asm.o -c kernel-asm.s
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) modules
 	gcc rela-patch.c -o rela-patch
+	make CAPSTONE_ARCHS="x86_64" -C python3
+	mkdir -p python3/bindings/python/capstone/lib
+	cp python3/libcapstone.so python3/bindings/python/capstone/lib/
+	mkdir -p capstone_python
+	cp -r python3/bindings/python/capstone/ -r capstone_python/
 	sudo python3 patch-lkm.py arprk.ko
 
 clean:
