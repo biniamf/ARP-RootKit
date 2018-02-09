@@ -101,8 +101,8 @@ def find_rela_offsets(vmlinux):
 		insts += i.mnemonic + "\t" + i.op_str + "\n"
 		#print (inst)
 		#print("0x%x:\t%s\t%s" %(i.address, i.mnemonic, i.op_str))
-	#print (insts)
-	pattern = "cmpq\s+?\$0, (\S+)?\(.*?\)\nje\s*?.*?\ncmpq\s+?\$0, (\S+?)?\(.*?\)\n"
+	print (insts)
+	pattern = "cmpq\s+?\$0, (\S+)?\(.*?\)\n[\s\S]+?je\s*?.*?\ncmpq\s+?\$0, (\S+?)?\(.*?\)\n"
 	regex = re.compile(pattern)
 	match = regex.findall(insts)
 	#print (match)
