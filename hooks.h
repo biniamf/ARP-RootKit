@@ -30,6 +30,11 @@
 #ifndef HOOKS_H
 
 /*
+ * Macros.
+ */
+#define MAP_FAILED     ((void *) -1)
+
+/*
  * (Un)Hooking macros.
  */
 #define HOOK64(nr, handler) my_sct[nr] = handler
