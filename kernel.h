@@ -76,6 +76,10 @@ extern mm_segment_t my_get_fs(void);
 extern void my_set_fs(mm_segment_t seg);
 extern unsigned int kernel_tree;
 extern mm_segment_t *addr_limit;
+extern long *sct_refs;
+extern long *ia32sct_refs;
+extern size_t nsct_refs;
+extern size_t nia32sct_refs;
 
 /*
  * Labels.

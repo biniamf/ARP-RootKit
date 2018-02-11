@@ -94,6 +94,8 @@ struct pid_list_node *pid_list_head = NULL;
 struct pid_list_node *pid_list_tail = NULL;
 unsigned int kernel_tree = 0;
 mm_segment_t *addr_limit = 0;
+long *sct_refs = NULL, *ia32sct_refs = NULL;
+size_t nsct_refs = 0, nia32sct_refs = 0;
 
 int (*tr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags) = NULL;
 void * (*f_kmalloc)(size_t size, gfp_t flags) = NULL;

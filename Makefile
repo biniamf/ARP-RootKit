@@ -34,8 +34,8 @@ arprk:
 	make CAPSTONE_ARCHS="x86_64" -C python3
 	mkdir -p python3/bindings/python/capstone/lib
 	cp python3/libcapstone.so python3/bindings/python/capstone/lib/
-	@echo "Now I'm going to patch the module, but for that I need to access vmlinuz-es from /boot, and I need to be root"
-	sudo python3 patch-lkm.py arprk.ko
+	#@echo "Now I'm going to patch the module, but for that I need to access vmlinuz-es from /boot, and I need to be root"
+	#sudo python3 patch-lkm.py arprk.ko
 
 clean:
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) clean

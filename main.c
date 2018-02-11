@@ -29,9 +29,19 @@
  */
 
 #include <linux/module.h>       /* Needed by all modules */
-#include <linux/sched.h>
+#include <linux/moduleparam.h>
 
 extern int load(void);
+
+//extern long image_sct, image_ia32sct, image_text;
+//extern size_t text_size;
+
+// We can not use module_param, as struct kernel_param, varies between trees and it has struct module, that varies a lot.
+// So, we write a file that we're going to open here.
+//module_param(image_text, ulong, 0);     // address of .text in vmlinux
+//module_param(image_sct, ulong, 0);      // address of sys_call_table in vmlinux
+//module_param(image_ia32sct, ulong, 0);  // address of ia32_sys_call_table in vmlinux
+//module_param(text_size, ulong, 0);      // section .text size (from vmlinux)
 
 int init_module(void) {
 	printk("hello!\n");
