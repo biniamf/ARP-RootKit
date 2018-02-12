@@ -1,58 +1,35 @@
 # No releases yet
-
 This software is under development.  
 There's not even 1 release yet.  
 
-# Hooking technique
+In the commit <commit> everything is prepared to start with syscall hooking.
+Atm, I developed a way to load a linux kernel module into any version of v4.x, by patching the module and loading specially (not so much specially).
+You compile in v4.0.1 for example, or v4.15.1, and it loads. And if you change kernel, just need to patch the module, and it loads.
 
-The idea is to replace the addresses of the sys_call_table in the whole kernel, avoiding anti malware to find hook handlers on the sys_call_table.  
-It must find the rootkit's sys_call_table from the opcodes in the kernel.  
+## Testing this
+Download kernel headers, and be sure you are able to compile linux kernel modules (you've everything needed).
 
-# Tested versions
+First compile it with: `make`
+Then load by: `sudo python3 load-lkm.py arprk.ko`
 
-Until commit https://github.com/D1W0U/ARP-RootKit/commit/3ac1022783b8b81225a54989fe10513c31e93a0b, those Linux Kernel versions are tested (under Ubuntu):  
-- 4.13.0-32-generic
-- 4.13.0-31-generic  
-- 4.13.0-26-generic  
-- 4.11.0-13-generic  
-- 4.10.0-42-generic  
-- 4.10.0-14-generic  
-- 4.8.0-36-generic  
-- 4.4.0-101-generic  
+If you change the kernel there's no matters (but if it fails, please report). Just issue the load command.
 
-But the rootkit is still in development. And atm doesn't stealths anything, nor give backdoor access. It just finds the places where sys_call_tables are, preparing the project (ttw I gave support to the before versions), to start the part of a rootkit itself.  
-
-# The first commit of this project
-
-At the beggining, I started doing research of ways of implementing a rootkit without hooking syscalls.  
-And I found a way of hidding PIDs. The problem is that the process can't terminate ever.  
-But maybe hooking sys_exit and restoring the pid into the structures of the kernel, it would be possible.  
-
-Below an example of the working `rootkit.c` first commit:  
-
-```
-diwou@diwou-VirtualBox:~/arprootkit$ ps auwx | grep bash | grep root
-root      3924  0.0  0.1  61932  4052 pts/9    S    13:10   0:00 sudo bash
-root      3925  0.0  0.1  29960  5444 pts/9    S+   13:10   0:00 bash
-diwou@diwou-VirtualBox:~/arprootkit$ grep 392 rootkit.c
-hide_pid(3924);
-hide_pid(3925);
-diwou@diwou-VirtualBox:~/arprootkit$ sudo insmod rootkit.ko
-find_vpid ffff9df24f34c180
-Ok
-find_vpid ffff9df24f34cb00
-Ok
-diwou@diwou-VirtualBox:~/arprootkit$ ps auwx | grep bash | grep root
-diwou@diwou-VirtualBox:~/arprootkit$ ls /proc/3924
-ls: no se puede acceder a '/proc/3924': No existe el archivo o el directorio
-diwou@diwou-VirtualBox:~/arprootkit$ ls /proc/3925
-ls: no se puede acceder a '/proc/3925': No existe el archivo o el directorio
-diwou@diwou-VirtualBox:~/arprootkit$ sudo rmmod rootkit
-Ok
-Ok
-diwou@diwou-VirtualBox:~/arprootkit$ ps auwx | grep bash | grep root
-root      3924  0.0  0.1  61932  4052 pts/9    S    13:10   0:00 sudo bash
-root      3925  0.0  0.1  29960  5444 pts/9    S+   13:10   0:00 bash
-```
-
-Here the https://github.com/D1W0U/ARP-RootKit/commit/217e1473cb41911f78fa7c8388e7d6ff2cc868cb
+## Tested Linux Kernels
+vmlinuz-4.0.1-040001-generic
+vmlinuz-4.1.48-040148-generic
+vmlinuz-4.2.8-040208-generic
+vmlinuz-4.3.6-040306-generic
+vmlinuz-4.4.0-101-generic
+vmlinuz-4.5.7-040507-generic
+vmlinuz-4.6.7-040607-generic
+vmlinuz-4.7.10-040710-generic
+vmlinuz-4.8.0-36-generic
+vmlinuz-4.9.80-040980-generic
+vmlinuz-4.10.0-14-generic
+vmlinuz-4.10.0-42-generic
+vmlinuz-4.11.0-13-generic
+vmlinuz-4.12.14-041214-generic
+vmlinuz-4.13.0-31-generic
+vmlinuz-4.13.0-32-generic
+vmlinuz-4.14.17-041417-generic
+vmlinuz-4.15.1-041501-generic
