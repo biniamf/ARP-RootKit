@@ -43,11 +43,13 @@ def find_scts_addresses(vmlinux, code_start, code_end, rodata_start, rodata_end)
 			c += 1
 		else:
 			if c > 500 and c < 600:
+				sct_len = c
 				sct = f.tell()
 				sct = sct - c * 8 - 8
 				sct = sct + rodata_start
 				print("Found sct! %d syscalls at 0x%x" % (c, sct))
 			elif c > 300 and c < 500:
+				ia32sct_len = c
 				ia32sct = f.tell()
 				ia32sct = ia32sct - c * 8 - 8
 				ia32sct = ia32sct + rodata_start
@@ -60,7 +62,7 @@ def find_scts_addresses(vmlinux, code_start, code_end, rodata_start, rodata_end)
 	f.close()
 	os.remove(secdata)
 
-	return sct, ia32sct
+	return sct, ia32sct, sct_len, ia32sct_len
 
 def search_vmlinuzes(ref):
 	paths = []
@@ -88,7 +90,7 @@ if __name__ == "__main__":
 
 		code_start, code_end, rodata_start, rodata_end = get_sections_offsets(vmlinux)
 		print ("code_start   = %lx\ncode_end     = %lx\nrodata_start = %lx\nrodata_end   = %lx\n" % (code_start, code_end, rodata_start, rodata_end))
-		sct, ia32sct = find_scts_addresses(vmlinux, code_start, code_end, rodata_start, rodata_end)
+		sct, ia32sct, sct_len, ia32sct_len = find_scts_addresses(vmlinux, code_start, code_end, rodata_start, rodata_end)
 		print ("sct     = %lx" % sct)
 		print ("ia32sct = %lx" % ia32sct)
 
@@ -96,7 +98,7 @@ if __name__ == "__main__":
 		cmd = "python3 patch-lkm.py " + module
 		if os.system(cmd):
 			sys.exit(-1)
-		
+
 		params = "arprk.params"
 		errors = "arprk.errors"
 
@@ -108,6 +110,8 @@ if __name__ == "__main__":
 		f.write(struct.pack("=Q", sct))
 		f.write(struct.pack("=Q", ia32sct))
 		f.write(struct.pack("=Q", code_end - code_start))
+		f.write(struct.pack("=Q", sct_len))
+		f.write(struct.pack("=Q", ia32sct_len))
 		f.close()
 
 		cmd = "insmod " + module + " 2>" + errors
