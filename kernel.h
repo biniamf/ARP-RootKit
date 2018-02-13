@@ -29,6 +29,9 @@
 
 #ifndef KERNEL_H
 
+#include "hooks.h"
+#include "queue.h"
+
 /*
  * Rootkit's kernel functions.
  */
@@ -60,7 +63,6 @@ extern void (*f_skb_prepare_seq_read)(struct sk_buff *skb, unsigned int from,
 extern unsigned int (*f_skb_seq_read)(unsigned int consumed, const u8 **data,
 			  struct skb_seq_state *st);
 extern void (*f_skb_abort_seq_read)(struct skb_seq_state *st);
-
 extern void *kernel_addr;
 extern size_t kernel_len, kernel_paglen, kernel_pages;
 extern void **sys_call_table;

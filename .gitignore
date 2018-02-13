@@ -23,3 +23,5 @@
 !mod.c
 !python3
 !load-lkm.py
+!queue.c
+!queue.h

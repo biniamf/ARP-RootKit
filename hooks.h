@@ -29,6 +29,8 @@
 
 #ifndef HOOKS_H
 
+#include <linux/termios.h>
+
 /*
  * Macros.
  */
