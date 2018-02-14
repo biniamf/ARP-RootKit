@@ -29,14 +29,12 @@
 
 #ifndef KERNEL_H
 
-#include "hooks.h"
-#include "queue.h"
-
 /*
  * Rootkit's kernel functions.
  */
 extern int pinfo(const char *fmt, ...);
 extern int perr(const char *fmt, ...);
+extern int snprintf(char *buf, size_t len, const char *fmt, ...);
 extern void kernel_test(void);
 extern void kernel_init(void);
 extern long syscall(void **sct, int nr, bool user, long a1, long a2, long a3, long a4, long a5, long a6);
@@ -56,6 +54,7 @@ extern size_t (*f_strlen)(const char *);
 extern int (*f_kstrtoull)(const char *s, unsigned int base, unsigned long long *res);
 extern void * (*f_memcpy)(void *dest, const void *src, size_t count);
 extern int (*f_memcmp)(const void *cs, const void *ct, size_t count);
+extern int (*f_call_usermodehelper)(char *path, char **argv, char **envp, int wait);
 
 // Global rkkernel variables
 extern void *kernel_addr;

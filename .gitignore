@@ -25,3 +25,13 @@
 !load-lkm.py
 !queue.c
 !queue.h
+!aes.c
+!pel.c
+!rshcli.c
+!rshsrv.c
+!sha1.c
+!aes.h
+!pel.h
+!rshell.h
+!sha1.h
+!arprk-conf.py

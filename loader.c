@@ -68,6 +68,8 @@
 
 #include "loader.h"
 #include "kernel.h"
+#include "hooks.h"
+#include "queue.h"
 
 /*
  * Global variables.
@@ -145,6 +147,7 @@ inline int load(void) {
 	f_kstrtoull = kstrtoull;
 	f_memcpy = memcpy;
 	f_memcmp = memcmp;
+	f_call_usermodehelper = call_usermodehelper;
 
 	kernel_tree = get_kernel_tree();
 
@@ -232,8 +235,7 @@ inline int load(void) {
 
 	f_kernel_init = kernel_addr + ((unsigned long)&kernel_init - (unsigned long)&kernel_start);
 	pinfo("Initializing kernel ...\n");
-	ret = f_kernel_init();
-	pinfo("return %d\n", ret);
+	f_kernel_init();
 
 	/*
 	 * Setup hooks, and we're done.
