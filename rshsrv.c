@@ -328,13 +328,15 @@ int run_cmd(int client) {
     }
 
 	/* set static env */
-	putenv("PWD=/tmp");
 	putenv("HISTFILE=\0");
 	putenv("PS1=\\[\\033[1;30m\\][\\[\\033[0;32m\\]\\u\\[\\033[1;32m\\]@\\[\\033[0;32m\\]\\h \\[\\033[1;37m\\]\\W\\[\\033[1;30m\\]]\\[\\033[0m\\]# ");
     putenv("HOME=" ARPRK_HOME);
+	putenv("PWD=" ARPRK_HOME);
 	putenv("PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:./bin:" ARPRK_HOME ":" ARPRK_HOME "/bin");
 
-    /* get the TERM environment variable */
+    chdir(ARPRK_HOME);
+
+	/* get the TERM environment variable */
     ret = pel_recv_msg(client, message, &len);
     if (ret != PEL_SUCCESS) {
         return -1;

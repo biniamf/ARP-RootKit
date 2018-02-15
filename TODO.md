@@ -1,12 +1,8 @@
 # TODO
-- ADD SUPPORT:
-	- v4.10, 4.11, 4.12, 4.13 (possible 4.14 and 4.15) my_read64 broken.
-	- v4.0, sct not found
-	- v4.1, 4.2, 4.3 int 80h sct not found
-	- v4.4 my_read64() not capturing
+- RSHELL:
+	- support for upload and download directories.
 - Remove messages from kernel log (dmesg)
 - Remove symbols from /proc/kallsyms
-- Hide module
 - Communication API
 - RootKit revealer
 - hook find_vpid() and so
