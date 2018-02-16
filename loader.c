@@ -88,7 +88,6 @@ long image_sct = 0, image_ia32sct = 0, image_text = 0, text_size = 0, image_sct_
  * Function declarations.
  */
 int disassemble(void *code, size_t code_len);
-void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len);
 int safe_zero(void *dst, size_t len);
 int clone_sct(void *dst, void *src, size_t len);
 inline void install_hooks(void);
@@ -430,16 +429,6 @@ int disassemble(void *code, size_t code_len) {
 	cs_close(&handle);
 
 	return 0;
-}
-
-void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len) {
-	while (hs_len >= n_len) {
-		hs_len--;
-		if (!memcmp(haystack, needle, n_len))
-			return (void *)haystack;
-		haystack++;
-	}
-	return NULL;
 }
 
 long rand64(void) {

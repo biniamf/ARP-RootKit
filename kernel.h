@@ -38,6 +38,7 @@ extern int snprintf(char *buf, size_t len, const char *fmt, ...);
 extern void kernel_test(void);
 extern void kernel_init(void);
 extern long syscall(void **sct, int nr, bool user, long a1, long a2, long a3, long a4, long a5, long a6);
+extern void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len);
 
 /*
  * Symbols obtained from loader, passed to rootkit's kernel.

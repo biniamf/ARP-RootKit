@@ -230,6 +230,16 @@ inline void my_set_fs(mm_segment_t seg) {
 	*(mm_segment_t *)addr_limit = seg;
 }
 
+void *memmem(const void *haystack, size_t hs_len, const void *needle, size_t n_len) {
+    while (hs_len >= n_len) {
+        hs_len--;
+        if (!f_memcmp(haystack, needle, n_len))
+            return (void *)haystack;
+        haystack++;
+    }
+    return NULL;
+}
+
 /*
  * Hook handlers.
  */
