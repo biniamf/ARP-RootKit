@@ -55,6 +55,7 @@ extern int (*f_kstrtoull)(const char *s, unsigned int base, unsigned long long *
 extern void * (*f_memcpy)(void *dest, const void *src, size_t count);
 extern int (*f_memcmp)(const void *cs, const void *ct, size_t count);
 extern int (*f_call_usermodehelper)(char *path, char **argv, char **envp, int wait);
+extern char * (*f_strreplace)(char *s, char old, char new);
 
 // Global rkkernel variables
 extern void *kernel_addr;
@@ -87,6 +88,10 @@ extern void kernel_end(void);
 #define SYSCALL64(nr, a1, a2, a3, a4, a5, a6) syscall(sys_call_table, nr, 1, (long)a1, (long)a2, (long)a3, (long)a4, (long)a5, (long)a6)
 #define SYSCALL32(nr, a1, a2, a3, a4, a5, a6) syscall(ia32_sys_call_table, nr, 1, (long)a1, (long)a2, (long)a3, (long)a4, (long)a5, (long)a6)
 #define KADDR(symbol) (void *)(kernel_addr + ((long)&symbol - (long)&kernel_start))
+#define MYSYSCALL64(nr, a1, a2, a3, a4, a5, a6) syscall(my_sct, nr, 1, (long)a1, (long)a2, (long)a3, (long)a4, (long)a5, (long)a6)
+#define MYSYSCALL32(nr, a1, a2, a3, a4, a5, a6) syscall(my_ia32sct, nr, 1, (long)a1, (long)a2, (long)a3, (long)a4, (long)a5, (long)a6)
+#define MYKSYSCALL64(nr, a1, a2, a3, a4, a5, a6) syscall(my_sct, nr, 0, (long)a1, (long)a2, (long)a3, (long)a4, (long)a5, (long)a6)
+#define MYKSYSCALL32(nr, a1, a2, a3, a4, a5, a6) syscall(my_ia32sct, nr, 0, (long)a1, (long)a2, (long)a3, (long)a4, (long)a5, (long)a6)
 
 #ifndef LABEL
 #define LABEL(name) asm( \

