@@ -1,6 +1,9 @@
 # TODO
 - RSHELL:
 	- support for upload and download directories.
+- PID HIDDING:
+	- check if parent folder is mountpoint of fs proc
+	- bypass unhide
 - Remove messages from kernel log (dmesg)
 - Remove symbols from /proc/kallsyms
 - Communication API

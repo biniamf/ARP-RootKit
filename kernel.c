@@ -115,6 +115,7 @@ void kernel_test(void) {
 void kernel_init(void) {
 	pinfo("Hello from kernel_init()!\n");
 	pid_list_create();
+	fid_list_create();
 }
 
 int pinfo(const char *fmt, ...) {
@@ -171,7 +172,7 @@ int vpfd(int fd, const char *fmt, va_list args) {
 }
 
 long syscall(void **sct, int nr, bool user, long a1, long a2, long a3, long a4, long a5, long a6) {
-	long (*f)(long, long, long, long, long, long) = NULL, ret = 0;
+	asmlinkage long (*f)(long, long, long, long, long, long) = NULL, ret = 0;
 	mm_segment_t old_fs;
 
 	if (sct != NULL) {

