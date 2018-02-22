@@ -427,7 +427,7 @@ asmlinkage long my_fork64(void) {
 	pid = fake_new_process(pid);
 	return pid;
 }
-/*
+
 asm(
 ".globl my_clone64\n\t"
 ".type my_clone64, @function\n"
@@ -436,16 +436,35 @@ asm(
 //"add $448, %rcx\n\t"
 //"jmp *(%rcx)\n\t"
 //"mov sys_call_table(%rip), %rax\n\t"
+//"push %rbp\n\t"
+//"mov %rsp, %rbp\n\t"
 "push %rbp\n\t"
 "mov %rsp, %rbp\n\t"
+"push -56(%rbp)\n\t"
+"push -48(%rbp)\n\t"
+"push -40(%rbp)\n\t"
+"push -32(%rbp)\n\t"
+"push -24(%rbp)\n\t"
+"push -16(%rbp)\n\t"
+"push -8(%rbp)\n\t"
+"push (%rbp)\n\t"
 "mov sys_call_table(%rip), %rax\n\t"
 "add $448, %rax\n\t"
 "call *(%rax)\n\t"
-"leave\n\t"
+"pop (%rbp)\n\t"
+"pop -8(%rbp)\n\t"
+"pop -16(%rbp)\n\t"
+"pop -24(%rbp)\n\t"
+"pop -32(%rbp)\n\t"
+"pop -40(%rbp)\n\t"
+"pop -48(%rbp)\n\t"
+"pop -56(%rbp)\n\t"
+"mov %rbp, %rsp\n\t"
+"pop %rbp\n\t"
 "ret\n\t"
 ".size my_clone64, .-my_clone64\n\t"
 );
-*/
+
 asmlinkage long my_vfork64(void) {
 	pid_t pid = 0;
 	//asmlinkage long (*f)(void) = sys_call_table[__NR_vfork];
@@ -457,6 +476,7 @@ asmlinkage long my_vfork64(void) {
 	return pid;
 }
 
+/*
 asmlinkage long my_clone64(long a1, long a2, long a3, long a4, long a5, long a6) {
         pid_t pid = 0;
 
@@ -465,7 +485,7 @@ asmlinkage long my_clone64(long a1, long a2, long a3, long a4, long a5, long a6)
 	//pid = fake_new_process(pid);
         return pid;
 }
-
+*/
 asmlinkage long my_getpid64(void) {
 	pid_t pid = 0;
 

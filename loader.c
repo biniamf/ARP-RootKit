@@ -322,9 +322,9 @@ inline void install_hooks(void) {
 	HOOK64(__NR_newfstatat, KADDR(my_newfstatat64));
 
 	/* Process management */
-	HOOK64(__NR_fork, KADDR(my_fork64));
-	HOOK64(__NR_vfork, KADDR(my_vfork64));
-	HOOK64(__NR_clone, KADDR(my_clone64));
+	//HOOK64(__NR_fork, KADDR(my_fork64));
+	//HOOK64(__NR_vfork, KADDR(my_vfork64));
+	//HOOK64(__NR_clone, KADDR(my_clone64));
 	/*
 	HOOK64(__NR_wait4, KADDR(my_wait464));
 	HOOK64(__NR_kill, KADDR(my_kill64));
