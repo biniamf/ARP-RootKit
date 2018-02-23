@@ -108,8 +108,6 @@ void kernel_test(void) {
 	pinfo("ia32_sys_call_table = %lx\n", ia32_sys_call_table);
 	pinfo("my_sct              = %lx\n", my_sct);
 	pinfo("my_ia32sct          = %lx\n", my_ia32sct);
-
-	pinfo("Probably if you arrived here, I'm going to work fine! =)\n");
 }
 
 void kernel_init(void) {
@@ -119,12 +117,12 @@ void kernel_init(void) {
 }
 
 int pinfo(const char *fmt, ...) {
-    va_list args;
+	va_list args;
 	int ret;
 
-    va_start(args, fmt);
-    ret = vpfd(1, fmt, args);
-    va_end(args);
+	va_start(args, fmt);
+	ret = vpfd(1, fmt, args);
+	va_end(args);
 	return ret;
 }
 
@@ -223,11 +221,11 @@ unsigned int get_kernel_tree(void) {
 	return (unsigned int)tree;
 }
 
-inline mm_segment_t my_get_fs(void) {
+mm_segment_t my_get_fs(void) {
 	return *(mm_segment_t *)addr_limit;
 }
 
-inline void my_set_fs(mm_segment_t seg) {
+void my_set_fs(mm_segment_t seg) {
 	*(mm_segment_t *)addr_limit = seg;
 }
 

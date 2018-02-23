@@ -118,6 +118,8 @@ extern asmlinkage long my_newstat64(const char __user *filename, struct stat __u
 extern asmlinkage long my_lstat64(const char __user * filename, struct stat __user * statbuf);
 extern asmlinkage long my_stat64(const char __user *filename, struct stat __user *statbuf);
 //
+extern long (*tr_clone64)(long a1, long a2, long a3, long a4, long a5, long a6);
+extern void *tr_clone64_bytecode;
 extern asmlinkage long my_fork64(void);
 extern asmlinkage long my_vfork64(void);
 extern asmlinkage long my_clone64(long a1, long a2, long a3, long a4, long a5, long a6);

